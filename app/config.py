@@ -1,16 +1,22 @@
 """Baca dan validasi .env. Gagal cepat dengan pesan jelas."""
+from __future__ import annotations
 import os
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 from dotenv import load_dotenv
 
 load_dotenv()
 
+Backend = Literal["mock", "campus"]
+ApiStyle = Literal["openai", "ollama"]
+ToolMode = Literal["native", "json"]
+
 @dataclass(frozen=True)
 class Config:
-    llm_backend: Literal["mock", "campus"]
-    llm_api_style: Literal["openai", "ollama"]
-    llm_tool_mode: Literal["native", "json"]
+    llm_backend: Backend
+    llm_api_style: ApiStyle
+    llm_tool_mode: ToolMode
     llm_base_url: str
     llm_api_key: str
     llm_model: str
@@ -30,26 +36,40 @@ def _choice(name: str, allowed: set[str]) -> str:
 
 def load_config() -> Config:
     backend = _choice("LLM_BACKEND", {"mock", "campus"})
-    style = _choice("LLM_API_STYLE", {"openai", "ollama"})
-    mode = _choice("LLM_TOOL_MODE", {"native", "json"})
+    api_style = _choice("LLM_API_STYLE", {"openai", "ollama"})
+    tool_mode = _choice("LLM_TOOL_MODE", {"native", "json"})
+
+    eval_path = os.getenv("EVAL_DATASET_PATH", "eval/dataset.jsonl").strip() or (
+        "eval/dataset.jsonl"
+    )
 
     if backend == "campus":
         return Config(
             llm_backend=backend,
-            llm_api_style=style,
-            llm_tool_mode=mode,
+            llm_api_style=api_style,
+            llm_tool_mode=tool_mode,
             llm_base_url=_require("LLM_BASE_URL"),
             llm_api_key=_require("LLM_API_KEY"),
             llm_model=_require("LLM_MODEL"),
-            eval_dataset_path=os.getenv("EVAL_DATASET_PATH", "eval/dataset.jsonl"),
+            eval_dataset_path=eval_path,
         )
+    
     # backend=mock: URL/key/model boleh kosong
     return Config(
         llm_backend=backend,
-        llm_api_style=style,
-        llm_tool_mode=mode,
-        llm_base_url=os.getenv("LLM_BASE_URL", ""),
-        llm_api_key=os.getenv("LLM_API_KEY", ""),
-        llm_model=os.getenv("LLM_MODEL", "mock"),
-        eval_dataset_path=os.getenv("EVAL_DATASET_PATH", "eval/dataset.jsonl"),
+        llm_api_style=api_style,
+        llm_tool_mode=tool_mode,
+        llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
+        llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
+        llm_model=os.getenv("LLM_MODEL", "mock").strip() or "mock",
+        eval_dataset_path=eval_path,
     )
+
+@lru_cache(maxsize=1)
+def get_config() -> Config:
+    """Versi cached dari load_config().
+
+    Dipakai oleh modul yang butuh config berulang (mis. client).
+    Di tes, panggil get_config.cache_clear() sebelum monkeypatch env.
+    """
+    return load_config()

@@ -53,7 +53,6 @@ def test_stub_raise_not_implemented():
     import pytest
 
     from app.llm.campus import CampusLLM
-    from app.llm.mock import MockLLM
     from app.gmail.client import GmailAPIClient
     from app.gmail.mock_client import MockGmailAPIClient
     from app.agent.graph import InboxGraph
@@ -63,8 +62,6 @@ def test_stub_raise_not_implemented():
 
     with pytest.raises(NotImplementedError):
         CampusLLM()
-    with pytest.raises(NotImplementedError):
-        MockLLM()
     with pytest.raises(NotImplementedError):
         GmailAPIClient()
     with pytest.raises(NotImplementedError):

@@ -5,6 +5,8 @@
   jadi mode json dan adapter ollama tidak diperlukan.
 - Server mati (jaringan, 429, 5xx): retry maks 3 dengan jitter, lalu
   LLMUnavailableError. Status 4xx lain langsung LLMUnavailableError.
+- 429 (rate limit): jeda retry mengikuti header Retry-After atau "Limit resets at"
+  di isi pesan gateway, dibatasi 1-60 detik; tanpa petunjuk, pakai jeda biasa.
 - Output rusak (arguments bukan objek JSON, atau tidak ada tool_call padahal
   tools diberikan): dikoreksi maks 2 kali, lalu LLMOutputError.
 - usage dijumlahkan dari semua percobaan dalam satu panggilan.
@@ -12,7 +14,10 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable
 
 from tenacity import (
@@ -22,6 +27,7 @@ from tenacity import (
     stop_after_attempt,
     wait_random_exponential,
 )
+from tenacity.wait import wait_base
 
 from app.config import Config, ConfigError, LLMConfig, get_config
 from app.contracts import LLMOutputError, LLMResponse, LLMUnavailableError, ToolCall, Usage
@@ -31,6 +37,50 @@ from app.llm.transport import (
     extract_tool_calls,
     send_chat_request,
 )
+
+
+RATE_LIMIT_MAX_WAIT_S = 60.0
+_RESETS_AT_RE = re.compile(r"Limit resets at: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC")
+
+
+def rate_limit_delay(exc: BaseException | None, now: datetime | None = None) -> float | None:
+    """Detik yang perlu ditunggu untuk 429, dibatasi 1..60. None jika bukan 429/tanpa petunjuk.
+
+    Urutan: header Retry-After (detik atau tanggal HTTP), lalu "Limit resets at: ... UTC"
+    di isi pesan gateway LLM kampus.
+    """
+    if not isinstance(exc, LLMHTTPError) or exc.status != 429:
+        return None
+    now = now or datetime.now(timezone.utc)
+    seconds = None
+    if exc.retry_after:
+        value = exc.retry_after.strip()
+        if value.isdigit():
+            seconds = float(value)
+        else:
+            try:
+                seconds = (parsedate_to_datetime(value) - now).total_seconds()
+            except (TypeError, ValueError):
+                seconds = None
+    if seconds is None:
+        match = _RESETS_AT_RE.search(exc.message or "")
+        if match:
+            reset = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            seconds = (reset - now).total_seconds()
+    if seconds is None:
+        return None
+    return min(max(seconds, 1.0), RATE_LIMIT_MAX_WAIT_S)
+
+
+class _RateLimitAwareWait(wait_base):
+    """Untuk 429 pakai rate_limit_delay; selain itu jeda biasa (fallback)."""
+
+    def __init__(self, fallback: Any) -> None:
+        self.fallback = fallback
+
+    def __call__(self, retry_state) -> float:
+        delay = rate_limit_delay(retry_state.outcome.exception())
+        return delay if delay is not None else self.fallback(retry_state)
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -50,6 +100,7 @@ class CampusLLM:
         max_retries: int = 3,
         max_corrections: int = 2,
         wait: Any = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         cfg = config or get_config()
         if cfg.llm_tool_mode != "native" or cfg.llm_api_style != "openai":
@@ -64,7 +115,10 @@ class CampusLLM:
         self._send = send
         self._max_retries = max_retries
         self._max_corrections = max_corrections
-        self._wait = wait if wait is not None else wait_random_exponential(multiplier=1, max=20)
+        self._wait = _RateLimitAwareWait(
+            wait if wait is not None else wait_random_exponential(multiplier=1, max=20)
+        )
+        self._sleep = sleep
 
     # ------------------------------------------------------------------ API
     def call_llm(
@@ -118,6 +172,7 @@ class CampusLLM:
             for attempt in Retrying(
                 stop=stop_after_attempt(self._max_retries + 1),
                 wait=self._wait,
+                sleep=self._sleep,
                 retry=retry_if_exception(_retryable),
                 reraise=False,
             ):

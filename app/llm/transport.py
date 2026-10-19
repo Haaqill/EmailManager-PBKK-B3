@@ -27,10 +27,11 @@ from app.config import LOOPBACK_HOSTS, LLMConfig
 
 
 class LLMHTTPError(RuntimeError):
-    def __init__(self, status: int | None, message: str):
+    def __init__(self, status: int | None, message: str, retry_after: str | None = None):
         super().__init__(f"HTTP {status}: {message}" if status else message)
         self.status = status
         self.message = message
+        self.retry_after = retry_after   # nilai header Retry-After apa adanya (detik atau tanggal HTTP)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -74,7 +75,8 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
         raise
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise LLMHTTPError(exc.code, detail) from None
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        raise LLMHTTPError(exc.code, detail, retry_after) from None
     except urllib.error.URLError as exc:
         raise LLMHTTPError(None, f"Tidak bisa menghubungi endpoint: {exc.reason}") from None
     except TimeoutError:

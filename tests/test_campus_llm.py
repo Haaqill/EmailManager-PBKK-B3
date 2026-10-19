@@ -125,3 +125,53 @@ def test_api_key_tidak_bocor_di_pesan_error():
         llm.call_llm([], TOOLS)
     assert "sk-uji" not in str(info.value)
     assert json.dumps(str(info.value))
+
+
+# ---------------------------------------------------------- 429 rate limit
+from datetime import datetime, timezone
+
+from app.llm.campus import rate_limit_delay
+
+NOW = datetime(2026, 10, 19, 15, 21, 0, tzinfo=timezone.utc)
+GATEWAY_429 = ('{"error":{"message":"Rate limit exceeded for api_key: abc. Limit type: max_parallel_requests. '
+               'Current limit: 2, Remaining: 0. Limit resets at: 2026-10-19 15:21:39 UTC"}}')
+
+
+def test_delay_dari_limit_resets_at():
+    assert rate_limit_delay(LLMHTTPError(429, GATEWAY_429), NOW) == 39.0
+
+
+def test_delay_dari_retry_after_detik_didahulukan():
+    assert rate_limit_delay(LLMHTTPError(429, GATEWAY_429, retry_after="5"), NOW) == 5.0
+
+
+def test_delay_dari_retry_after_tanggal_http():
+    exc = LLMHTTPError(429, "x", retry_after="Mon, 19 Oct 2026 15:21:20 GMT")
+    assert rate_limit_delay(exc, NOW) == 20.0
+
+
+@pytest.mark.parametrize("reset,expected", [("15:30:00", 60.0), ("15:20:00", 1.0)])
+def test_delay_dibatasi_1_sampai_60(reset, expected):
+    msg = f"Limit resets at: 2026-10-19 {reset} UTC"
+    assert rate_limit_delay(LLMHTTPError(429, msg), NOW) == expected
+
+
+@pytest.mark.parametrize("exc", [LLMHTTPError(429, "tanpa petunjuk"), LLMHTTPError(503, GATEWAY_429),
+                                 ValueError("x"), None])
+def test_tanpa_petunjuk_atau_bukan_429_pakai_jeda_biasa(exc):
+    assert rate_limit_delay(exc, NOW) is None
+
+
+def test_retry_429_menunggu_sesuai_petunjuk_lalu_berhasil():
+    sleeps = []
+    send = FakeSend(LLMHTTPError(429, "x", retry_after="7"), resp([call()]))
+    llm = CampusLLM(CFG, send=send, wait=wait_none(), sleep=sleeps.append)
+    r = llm.call_llm([], TOOLS)
+    assert sleeps == [7.0] and r.usage.retries == 1
+
+
+def test_retry_503_tetap_pakai_jeda_biasa():
+    sleeps = []
+    send = FakeSend(LLMHTTPError(503, "down"), resp([call()]))
+    CampusLLM(CFG, send=send, wait=wait_none(), sleep=sleeps.append).call_llm([], TOOLS)
+    assert sleeps == [0]

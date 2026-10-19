@@ -15,6 +15,7 @@ __all__ = [
     "LLMResponse",
     "LLMUnavailableError",
     "LLMOutputError",
+    "make_llm",
 ]
 
 
@@ -32,3 +33,16 @@ class LLMClient(Protocol):
         self, messages: list[dict], tools: list[dict] | None = None
     ) -> LLMResponse: ...
     
+
+def make_llm(config=None) -> LLMClient:
+    """LLMClient sesuai LLM_BACKEND: campus → CampusLLM, mock → DatasetLLM (jawaban dari dataset)."""
+    from app.config import get_config
+
+    cfg = config or get_config()
+    if cfg.llm_backend == "campus":
+        from app.llm.campus import CampusLLM
+
+        return CampusLLM(cfg)
+    from app.llm.mock import DatasetLLM
+
+    return DatasetLLM(cfg.eval_dataset_path)

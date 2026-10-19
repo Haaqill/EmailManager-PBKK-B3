@@ -18,35 +18,67 @@ from app.gmail.schemas import (
 )
 from pydantic import ValidationError
 
+import json
+from datetime import datetime, timedelta, timezone
+from email.utils import getaddresses
+from pathlib import Path
+
+from app.contracts import DatasetRow
+from app.gmail.schemas import (
+    GmailArchiveResult,
+    GmailAttachment,
+    GmailDraftResult,
+    GmailLabelResult,
+    GmailMessage,
+    GmailThread,
+    GmailThreadSummary,
+)
+from pydantic import ValidationError
+
+
+def load_dataset(dataset_path: str | Path) -> list[DatasetRow]:
+    """Baca array DatasetRow dari JSON dan validasi tiap baris.
+
+    Dipakai MockGmailAPIClient dan DatasetLLM (LLM_BACKEND=mock).
+    Path relatif yang tidak ada di cwd dihitung dari root proyek.
+    """
+    path = Path(dataset_path)
+    if not path.is_absolute() and not path.exists():
+        from app.config import PROJECT_DIR
+
+        path = PROJECT_DIR / path
+    try:
+        with path.open(encoding="utf-8") as dataset_file:
+            raw_rows = json.load(dataset_file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Dataset Gmail bukan JSON yang valid: {path}"
+        ) from exc
+
+    if not isinstance(raw_rows, list):
+        raise ValueError(f"Dataset Gmail harus berupa array JSON: {path}")
+
+    rows: list[DatasetRow] = []
+    seen: set[str] = set()
+    for index, raw_row in enumerate(raw_rows):
+        try:
+            row = DatasetRow.model_validate(raw_row)
+        except ValidationError as exc:
+            raise ValueError(
+                f"Baris dataset Gmail ke-{index + 1} tidak valid."
+            ) from exc
+        if row.id in seen:
+            raise ValueError(f"ID thread duplikat dalam dataset Gmail: {row.id}")
+        seen.add(row.id)
+        rows.append(row)
+    return rows
+
 
 class MockGmailAPIClient:
     """Klien Gmail palsu yang membaca array DatasetRow dari JSON."""
 
     def __init__(self, dataset_path: str | Path = "eval/dataset.json") -> None:
-        path = Path(dataset_path)
-        try:
-            with path.open(encoding="utf-8") as dataset_file:
-                raw_rows = json.load(dataset_file)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Dataset Gmail bukan JSON yang valid: {path}"
-            ) from exc
-
-        if not isinstance(raw_rows, list):
-            raise ValueError(f"Dataset Gmail harus berupa array JSON: {path}")
-
-        self._threads: dict[str, DatasetRow] = {}
-        for index, raw_row in enumerate(raw_rows):
-            try:
-                row = DatasetRow.model_validate(raw_row)
-            except ValidationError as exc:
-                raise ValueError(
-                    f"Baris dataset Gmail ke-{index + 1} tidak valid."
-                ) from exc
-            if row.id in self._threads:
-                raise ValueError(f"ID thread duplikat dalam dataset Gmail: {row.id}")
-            self._threads[row.id] = row
-
+        self._threads: dict[str, DatasetRow] = {row.id: row for row in load_dataset(dataset_path)}
         self.drafts: list[dict[str, str]] = []
 
     def list_threads(

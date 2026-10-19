@@ -175,3 +175,16 @@ def test_get_config_cache_clear_membaca_ulang(monkeypatch):
     assert a is not b
     assert a.llm_api_style == "openai"
     assert b.llm_api_style == "ollama"
+
+def test_llm_timeout_default_dan_dari_env(monkeypatch):
+    from app.config import ConfigError, load_config
+
+    for k, v in {"LLM_BACKEND": "mock", "LLM_API_STYLE": "openai", "LLM_TOOL_MODE": "native"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("LLM_TIMEOUT_S", raising=False)
+    assert load_config().llm_timeout_s == 120.0
+    monkeypatch.setenv("LLM_TIMEOUT_S", "180")
+    assert load_config().llm_timeout_s == 180.0
+    monkeypatch.setenv("LLM_TIMEOUT_S", "nol")
+    with pytest.raises(ConfigError, match="LLM_TIMEOUT_S"):
+        load_config()

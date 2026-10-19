@@ -215,3 +215,51 @@ def make_multi_tool_response(
         tool_calls=tool_calls,
         usage=_usage(model, prompt_chars, size),
     )
+
+# ══════════════════════════════════════════════════════════════════
+# DatasetLLM — LLM palsu untuk demo offline (LLM_BACKEND=mock)
+# ══════════════════════════════════════════════════════════════════
+
+_DRAFT_TEMPLATES = {
+    "id": "Terima kasih atas emailnya. Saya sudah menerima pesan ini dan akan segera menindaklanjuti.",
+    "en": "Thank you for your email. I have received it and will follow up shortly.",
+}
+
+
+class DatasetLLM:
+    """Menjawab submit_classification / submit_draft dari `expected` di dataset.
+
+    thread_id dibaca dari baris "thread_id: ..." pesan user (build_thread_message).
+    Tidak ada jaringan; cocok untuk latihan demo dan tes end-to-end.
+    """
+
+    def __init__(self, dataset_path: str) -> None:
+        from app.gmail.mock_client import load_dataset
+
+        self.rows = {r.id: r for r in load_dataset(dataset_path)}
+        self.calls: list[dict] = []
+
+    def call_llm(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+        import re
+
+        self.calls.append({"messages": _deepcopy_messages(messages), "tools": tools})
+        user = next(m["content"] for m in reversed(messages) if m.get("role") == "user")
+        match = re.search(r"^thread_id: (\S+)$", user, re.MULTILINE)
+        subject = re.search(r"^Subjek: (.*)$", user, re.MULTILINE)
+        tool = (tools or [{}])[0].get("function", {}).get("name")
+        if not match or match.group(1) not in self.rows or tool is None:
+            return make_text_response("Tidak ada data untuk thread ini.")
+        row = self.rows[match.group(1)]
+        prompt_chars = _total_chars(messages)
+
+        if tool == "submit_draft":
+            body = _DRAFT_TEMPLATES.get(row.lang, _DRAFT_TEMPLATES["id"])
+            return make_tool_response(tool, {"thread_id": row.id, "body": body},
+                                      model="dataset-llm", prompt_chars=prompt_chars)
+        exp = row.expected
+        return make_tool_response(tool, {
+            "thread_id": row.id,
+            "summary": subject.group(1) if subject else row.id,
+            "category": exp.category, "priority": exp.priority, "action": exp.action,
+            "needs_reply": exp.needs_reply, "reason": "jawaban mock dari dataset",
+        }, model="dataset-llm", prompt_chars=prompt_chars)

@@ -43,12 +43,22 @@ class Config:
     llm_api_key: str
     llm_model: str
     eval_dataset_path: str
+    llm_timeout_s: float = 120.0   # per permintaan; qwen3 bisa lambat saat gateway ramai
 
 def _require(name: str) -> str:
     v = os.getenv(name, "").strip()
     if not v:
         raise ConfigError(f"{name} kosong di .env. Lihat .env.example.")
     return v
+
+def _timeout(raw: str) -> float:
+    try:
+        value = float(raw)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError:
+        raise ConfigError(f"LLM_TIMEOUT_S harus angka positif, bukan {raw!r}") from None
+    return value
 
 def _choice(name: str, allowed: set[str]) -> str:
     v = _require(name)
@@ -64,6 +74,7 @@ def load_config() -> Config:
     eval_path = os.getenv("EVAL_DATASET_PATH", "eval/dataset.json").strip() or (
         "eval/dataset.json"
     )
+    timeout_s = _timeout(os.getenv("LLM_TIMEOUT_S", "").strip() or "120")
 
     if backend == "campus":
         return Config(
@@ -74,6 +85,7 @@ def load_config() -> Config:
             llm_api_key=_require("LLM_API_KEY"),
             llm_model=_require("LLM_MODEL"),
             eval_dataset_path=eval_path,
+            llm_timeout_s=timeout_s,
         )
     
     # backend=mock: URL/key/model boleh kosong
@@ -85,6 +97,7 @@ def load_config() -> Config:
         llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
         llm_model=os.getenv("LLM_MODEL", "mock").strip() or "mock",
         eval_dataset_path=eval_path,
+        llm_timeout_s=timeout_s,
     )
 
 @lru_cache(maxsize=1)

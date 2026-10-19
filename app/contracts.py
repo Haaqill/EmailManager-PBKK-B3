@@ -95,7 +95,9 @@ class ToolContext:
 class PiiMap(Protocol):
     """Satu per batch, hanya di memori.
     TIDAK PERNAH masuk log, state, disk, atau prompt."""
-    ...
+
+    def redact_text(self, text: str) -> str: ...
+    def restore(self, text: str) -> str: ...
 
 def redact(text: str, pii_map: PiiMap) -> str: ...
 def restore(text: str, pii_map: PiiMap) -> str: ...
@@ -192,7 +194,7 @@ class FatalToolError(Exception):
     """
 
 # ─────────────────────────────────────────────────────────────
-# 5. Dataset (USULAN) — satu baris JSONL per thread
+# 5. Dataset (USULAN) — array JSON berisi satu objek per thread
 # ─────────────────────────────────────────────────────────────
 
 class DatasetMessage(BaseModel):

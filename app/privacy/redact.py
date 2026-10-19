@@ -34,6 +34,7 @@ from email.utils import getaddresses
 from html.parser import HTMLParser
 from typing import Any, Callable, Iterable
 from urllib.parse import unquote, urlparse
+from app.contracts import PiiMap as PiiMapProtocol
 
 SECRET = "[SECRET]"
 
@@ -787,9 +788,9 @@ def release_pii_map(batch_id: str) -> None:
         pii_map.clear()
 
 
-def redact(text: str, pii_map: PiiMap) -> str:
+def redact(text: str, pii_map: PiiMapProtocol) -> str:
     return pii_map.redact_text(text)
 
 
-def restore(text: str, pii_map: PiiMap) -> str:
+def restore(text: str, pii_map: PiiMapProtocol) -> str:
     return pii_map.restore(text)

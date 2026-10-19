@@ -17,8 +17,6 @@ Aturan dari kontrak:
 """
 from __future__ import annotations
 
-from typing import Any
-
 from app.contracts import (
     FatalToolError,
     NotFoundError,
@@ -38,6 +36,7 @@ from app.gmail.schemas import (
     ScanEmailsArgs,
     ScanEmailsResult,
 )
+from app.gmail.query import build_gmail_query
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -89,15 +88,12 @@ def _bangun_query(args: ScanEmailsArgs) -> str:
     sender_domain sudah divalidasi Pydantic di ScanEmailsArgs,
     jadi aman dipakai langsung.
     """
-    bagian = []
-    if args.unread_only:
-        bagian.append("is:unread")
-    bagian.append(f"newer_than:{args.newer_than_days}d")
-    if args.in_inbox:
-        bagian.append("in:inbox")
-    if args.sender_domain:
-        bagian.append(f"from:@{args.sender_domain}")
-    return " ".join(bagian)
+    return build_gmail_query(
+        unread_only=args.unread_only,
+        newer_than_days=args.newer_than_days,
+        in_inbox=args.in_inbox,
+        sender_domain=args.sender_domain,
+    )
 
 # ══════════════════════════════════════════════════════════════════
 # Tool 1: scan_emails

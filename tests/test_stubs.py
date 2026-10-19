@@ -53,10 +53,8 @@ def test_stub_raise_not_implemented():
 
     with pytest.raises(NotImplementedError):
         CampusLLM()
-    with pytest.raises(NotImplementedError):
-        GmailAPIClient()
-    with pytest.raises(NotImplementedError):
-        MockGmailAPIClient()
+    assert GmailAPIClient(service=object())
+    assert MockGmailAPIClient()
     with pytest.raises(NotImplementedError):
         InboxGraph()
 

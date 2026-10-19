@@ -33,6 +33,7 @@ from app.contracts import (
     ToolResult,
     ValidationError,
 )
+from app.privacy.redact import redact
 
 logger = logging.getLogger("gmail_agent.dispatcher")
 
@@ -148,9 +149,14 @@ def dispatch(
         return ToolResult.gagal(exc.code, str(exc))
     except Exception as exc:
         # Bug programmer: catat, jangan koreksi LLM
-        logger.exception(
-            "tool raise exception tak terduga",
-            extra={"tool": tool_name, "batch_id": ctx.batch_id},
+        logger.error(
+            "tool raise exception tak terduga: %s",
+            redact(str(exc), ctx.pii_map),
+            extra={
+                "tool": tool_name,
+                "batch_id": ctx.batch_id,
+                "exception_type": type(exc).__name__,
+            },
         )
         _log(tool_name, arguments, ctx, ok=False, error_code=ErrorCode.INTERNAL)
         return ToolResult.gagal(
@@ -220,12 +226,27 @@ def _log(
     extra = {
         "batch_id": ctx.batch_id,
         "tool": tool_name,
-        "arguments": arguments,
+        "arguments": _redact_log_value(arguments, ctx),
         "ok": ok,
         "error_code": error_code.value if error_code else None,
         "fatal": fatal,
     }
     if fatal_message is not None:
-        extra["fatal_message"] = fatal_message
+        extra["fatal_message"] = redact(fatal_message, ctx.pii_map)
 
     logger.info("tool call", extra=extra)
+
+
+def _redact_log_value(value: Any, ctx: ToolContext) -> Any:
+    if isinstance(value, str):
+        return redact(value, ctx.pii_map)
+    if isinstance(value, dict):
+        return {
+            _redact_log_value(key, ctx): _redact_log_value(item, ctx)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_log_value(item, ctx) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_log_value(item, ctx) for item in value)
+    return value

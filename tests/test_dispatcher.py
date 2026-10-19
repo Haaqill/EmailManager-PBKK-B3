@@ -43,7 +43,11 @@ def ctx() -> ToolContext:
     Tes yang butuh tool tertentu menambahkan ke allowed_tools.
     """
     class _Map:
-        pass
+        def redact_text(self, text: str) -> str:
+            return text
+
+        def restore(self, text: str) -> str:
+            return text
 
     return ToolContext(
         batch_id="batch-test",
@@ -54,7 +58,11 @@ def ctx() -> ToolContext:
 
 def _ctx_dengan(*tools: str) -> ToolContext:
     class _Map:
-        pass
+        def redact_text(self, text: str) -> str:
+            return text
+
+        def restore(self, text: str) -> str:
+            return text
 
     return ToolContext(
         batch_id="batch-test",
@@ -385,6 +393,53 @@ def test_log_dipanggil_untuk_gagal(caplog):
     rec = next(r for r in caplog.records if "tool call" in r.message)
     assert rec.ok is False
     assert rec.error_code == "validation"
+
+
+def test_log_menyamarkan_pii_dari_argumen_tool(caplog):
+    import logging
+
+    from app.privacy.redact import pii_map_for, release_pii_map
+
+    caplog.set_level(logging.INFO, logger="gmail_agent.dispatcher")
+    d.register_tool("echo", ArgsEcho, _tool_echo)
+    pii_map = pii_map_for("dispatcher-pii-test")
+    ctx = ToolContext(
+        batch_id="batch-test",
+        pii_map=pii_map,
+        allowed_tools={"echo"},
+    )
+    raw_email = "sari.w@univ.ac.id"
+    try:
+        d.dispatch("echo", {"text": f"Hubungi {raw_email}"}, ctx)
+        rec = next(r for r in caplog.records if "tool call" in r.message)
+        assert raw_email not in repr(rec.arguments)
+        assert "<EMAIL_1>" in rec.arguments["text"]
+    finally:
+        release_pii_map("dispatcher-pii-test")
+
+
+def test_log_menyamarkan_pii_dari_exception_tool(caplog):
+    import logging
+
+    from app.privacy.redact import pii_map_for, release_pii_map
+
+    caplog.set_level(logging.ERROR, logger="gmail_agent.dispatcher")
+    raw_email = "sari.w@univ.ac.id"
+    d.register_tool("broken", ArgsKosong, _tool_raise(RuntimeError(raw_email)))
+    pii_map = pii_map_for("dispatcher-exception-pii-test")
+    ctx = ToolContext(
+        batch_id="batch-test",
+        pii_map=pii_map,
+        allowed_tools={"broken"},
+    )
+
+    try:
+        result = d.dispatch("broken", {}, ctx)
+        assert result.error_code == ErrorCode.INTERNAL
+        assert raw_email not in caplog.text
+        assert "<EMAIL_1>" in caplog.text
+    finally:
+        release_pii_map("dispatcher-exception-pii-test")
 
 
 def test_log_ditulis_untuk_fatal_dengan_flag_fatal(caplog):

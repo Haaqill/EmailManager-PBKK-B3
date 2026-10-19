@@ -152,15 +152,20 @@ class MockGmail:
         if thread_id not in self.threads:
             raise LookupError(f"thread {thread_id} tidak ada")
         baru = [f"Kategori/{category}", f"Prioritas/{priority}"]
-        # Simulasi hapus label lama Kategori/* dan Prioritas/*
+        # Label yang tetap sama dipertahankan, label lama lainnya diganti.
         lama = self.threads[thread_id].get("labels", [])
         dihapus = [
-            l for l in lama if l.startswith("Kategori/") or l.startswith("Prioritas/")
+            l
+            for l in lama
+            if (l.startswith("Kategori/") or l.startswith("Prioritas/"))
+            and l not in baru
         ]
+        labels = [label for label in lama if label not in dihapus]
+        labels.extend(label for label in baru if label not in labels)
         self.labels_applied.append(
             {"thread_id": thread_id, "applied": baru, "removed": dihapus}
         )
-        self.threads[thread_id]["labels"] = baru
+        self.threads[thread_id]["labels"] = labels
         return GmailLabelResult(applied=baru, removed=dihapus)
 
     def archive(self, *, thread_id: str) -> GmailArchiveResult:

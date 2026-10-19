@@ -8,14 +8,19 @@ Dua pintu masuk:
 from __future__ import annotations
 import math
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 
+_env_before_dotenv = set(os.environ)
 load_dotenv()
+# Key yang ada di os.environ hanya karena load_dotenv() di atas, bukan environment asli.
+# load_endpoint_config tidak boleh membiarkan key ini menimpa --env-file pilihan pemanggil.
+_DOTENV_ONLY_KEYS = frozenset(set(os.environ) - _env_before_dotenv)
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_ENV_FILE = PROJECT_DIR / ".env"
@@ -96,6 +101,51 @@ def get_config() -> Config:
 
 _ENDPOINT_KEYS = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
 
+_EXPORT_RE = re.compile(r"^export\s+")
+
+
+def _parse_value(value: str) -> str:
+    """Nilai .env: `"..."` (escape \\" dan \\n diproses), `'...'` apa adanya, atau polos.
+    Komentar ` #...` di belakang nilai diabaikan."""
+    value = value.strip()
+    if value[:1] in ("'", '"'):
+        quote = value[0]
+        out, i = [], 1
+        while i < len(value):
+            ch = value[i]
+            if quote == '"' and ch == "\\" and i + 1 < len(value):
+                nxt = value[i + 1]
+                out.append({"n": "\n", "t": "\t"}.get(nxt, nxt))
+                i += 2
+                continue
+            if ch == quote:
+                return "".join(out)         # sisa baris (komentar) diabaikan
+            out.append(ch)
+            i += 1
+        return value                         # kutip tidak ditutup: pakai apa adanya
+    hash_pos = re.search(r"\s#", value)
+    return value[:hash_pos.start()].rstrip() if hash_pos else value
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parser .env minimal (KEY=VALUE, komentar #, kutip, `export` opsional, BOM, CRLF).
+
+    Dipakai karena dotenv_values gagal pada .env ber-BOM (Notepad Windows)
+    dan `export<TAB>KEY=...`.
+    """
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = _EXPORT_RE.sub("", raw.strip())
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            values[key] = _parse_value(value)
+    return values
+
 
 def _mask(secret: str) -> str:
     if not secret:
@@ -152,8 +202,11 @@ class LLMConfig:
 def load_endpoint_config(env_file: str | os.PathLike | None = DEFAULT_ENV_FILE,
                          environ: dict[str, str] | None = None) -> LLMConfig:
     """Muat endpoint LLM. Variabel environment menimpa nilai dari file .env."""
-    file_values = {k: v or "" for k, v in dotenv_values(env_file).items()} if env_file else {}
-    env = os.environ if environ is None else environ
+    file_values = _parse_env_file(Path(env_file)) if env_file else {}
+    if environ is None:
+        env = {k: v for k, v in os.environ.items() if k not in _DOTENV_ONLY_KEYS}
+    else:
+        env = environ
     merged = {**file_values, **{k: v for k, v in env.items() if k.startswith("LLM_")}}
 
     missing = [k for k in _ENDPOINT_KEYS if not merged.get(k, "").strip()]

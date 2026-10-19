@@ -7,7 +7,7 @@ Perubahan wajib direview pemilik kedua sisi kontrak.
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Generic, Literal, Protocol, TypeVar, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ─────────────────────────────────────────────────────────────
@@ -81,10 +81,12 @@ class ToolResult(BaseModel, Generic[T]):
 
 @dataclass
 class ToolContext:
-    """Diisi dispatcher, tidak pernah oleh LLM."""
+    """Konteks eksekusi. Diisi dispatcher, TIDAK PERNAH oleh LLM."""
+
     batch_id: str
     pii_map: "PiiMap"
     allowed_tools: set[str]
+    gmail_client: Any = None  # GmailClient; Any untuk hindari circular import
 
 # ─────────────────────────────────────────────────────────────
 # 3. Redaksi PII (USULAN) — detail di app/privacy/redact.py
@@ -153,6 +155,41 @@ class ActionRecord(BaseModel):
     tool: str
     ok: bool
     error_code: ErrorCode | None = None
+
+# ══════════════════════════════════════════════════════════════════
+# Exception untuk tool (dipakai B di tools.py, dikonversi dispatcher)
+# ══════════════════════════════════════════════════════════════════
+
+
+class ToolError(Exception):
+    """Base exception untuk error yang bisa dikonversi dispatcher."""
+
+    code: ErrorCode = ErrorCode.INTERNAL
+
+
+class ValidationError(ToolError):
+    """Argumen tidak valid. LLM boleh koreksi (maks 2)."""
+
+    code = ErrorCode.VALIDATION
+
+
+class NotFoundError(ToolError):
+    """thread_id tidak ada. LLM boleh koreksi (maks 2)."""
+
+    code = ErrorCode.NOT_FOUND
+
+
+class NotAllowedError(ToolError):
+    """Tool di luar allowlist / trash tanpa persetujuan. Tidak dikoreksi."""
+
+    code = ErrorCode.NOT_ALLOWED
+
+
+class FatalToolError(Exception):
+    """Error fatal: batch harus berhenti. Tidak dikonversi ke ToolResult.
+
+    Contoh: ReauthRequired (OAuth gagal), retry habis untuk 429/5xx.
+    """
 
 # ─────────────────────────────────────────────────────────────
 # 5. Dataset (USULAN) — satu baris JSONL per thread

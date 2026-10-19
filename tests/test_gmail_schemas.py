@@ -8,29 +8,27 @@ from pydantic import ValidationError
 
 from app.gmail import schemas
 from app.gmail.schemas import (
-    MVP_TOOLS,
-    TOOL_ARGS,
+    ArchiveThreadArgs,
     CreateDraftReplyArgs,
     FetchThreadArgs,
     LabelThreadArgs,
     ScanEmailsArgs,
-    openai_tool_schemas,
 )
+from app.gmail.tools import ALL_TOOLS_MVP
 
+ARGS_MODELS = [ScanEmailsArgs, FetchThreadArgs, LabelThreadArgs,
+               ArchiveThreadArgs, CreateDraftReplyArgs]
 LABEL_OK = {"thread_id": "t001", "category": "Tugas", "priority": "Mendesak", "reason": "tenggat Jumat"}
 
 
 def test_tidak_ada_tool_kirim_email():
-    assert "send_email" not in TOOL_ARGS
     assert not any("send" in name.lower() for name in dir(schemas))
+    assert not any("send" in name for name in ALL_TOOLS_MVP)
 
 
 def test_mvp_lima_tool_tanpa_trash():
-    assert MVP_TOOLS == {"scan_emails", "fetch_thread", "label_thread",
-                         "archive_thread", "create_draft_reply"}
-    names = [t["function"]["name"] for t in openai_tool_schemas()]
-    assert sorted(names) == sorted(MVP_TOOLS)
-    assert "trash_thread" in TOOL_ARGS
+    assert ALL_TOOLS_MVP == {"scan_emails", "fetch_thread", "label_thread",
+                             "archive_thread", "create_draft_reply"}
 
 
 def test_draft_menolak_penerima_dan_subjek_dari_llm():
@@ -92,5 +90,5 @@ def test_promosi_selalu_nanti():
 
 
 def test_skema_tanpa_anyof():
-    dumped = json.dumps(openai_tool_schemas(set(TOOL_ARGS)))
+    dumped = json.dumps([m.model_json_schema() for m in ARGS_MODELS])
     assert "anyOf" not in dumped

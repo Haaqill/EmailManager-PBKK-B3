@@ -1,42 +1,199 @@
-"""Skema argumen dan hasil tool Gmail (kontrak 2, B).
+"""Skema argumen dan hasil tool Gmail (kontrak 2).
 
-Aturan skema argumen (dibaca LLM):
-- extra="forbid": argumen tak dikenal (mis. to_email) menjadi VALIDATION.
-- Tanpa `X | None`: Pydantic menulisnya sebagai anyOf, yang belum tentu
-  ditangani model kampus. Pakai nilai default.
-- LLM tidak menulis query Gmail; scan_emails menerima filter terstruktur.
-- create_draft_reply hanya thread_id + body; penerima dan subjek diambil
-  tool dari header thread, supaya isi email tidak bisa mengalihkan penerima.
+File ini hanya berisi BENTUK DATA:
+- Model argumen per tool (dipakai dispatcher untuk validasi Pydantic)
+- Model hasil per tool (dipakai tool untuk mengembalikan data bertipe)
+- Protokol GmailClient (antarmuka yang harus dipenuhi client asli & mock)
 
-Tidak ada tool untuk mengirim email atau menghapus permanen.
+Tidak ada logika eksekusi di sini. Logika ada di tools.py.
+
+Catatan dari kontrak:
+- Tanpa X | None di argumen: Pydantic menulisnya anyOf, yang belum tentu
+  ditangani model kampus. Pakai nilai default (string kosong, angka).
+- max_results dibatasi 1..50, newer_than_days 1..90, max_messages 1..20.
+- Domain pengirim dikirim terpisah lewat from_domain, bukan dari redact().
 """
 from __future__ import annotations
 
-from typing import Any
-
+from typing import Protocol
+import re
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.contracts import Category, Priority
 
+_DOMAIN_RE = re.compile(
+    r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+)
+
+# thread_id Gmail hanya huruf, angka, _ dan -; menolak sisipan seperti "t001 OR x".
 _THREAD_ID = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
-# Domain polos (mis. univ.ac.id) atau kosong. Mencegah operator query
-# seperti "x.com OR in:trash" masuk ke query Gmail.
-_DOMAIN_PATTERN = r"^$|^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
 
 
 class _Args(BaseModel):
+    """Basis argumen tool: argumen tak dikenal (mis. to_email) ditolak,
+    sehingga dispatcher mengembalikan VALIDATION, bukan diam-diam diabaikan."""
+
     model_config = ConfigDict(extra="forbid")
 
+# ══════════════════════════════════════════════════════════════════
+# Protokol klien Gmail
+# ══════════════════════════════════════════════════════════════════
+# GmailAPIClient dan MockGmailAPIClient harus mengimplementasikan ini.
+# Tool hanya memanggil method di protokol ini, tidak pernah Gmail API
+# langsung. Dengan begitu, tool bisa diuji dengan mock.
 
-# ---------------------------------------------------------- argumen tool
+
+class GmailThreadSummary(BaseModel):
+    """Ringkasan satu thread dari scan_emails. SUDAH teredaksi."""
+
+    thread_id: str
+    subject: str            # sudah diredaksi
+    from_domain: str        # domain pengirim, TIDAK diredaksi
+    snippet: str            # sudah diredaksi
+    date: str               # ISO 8601
+    message_count: int
+    has_attachments: bool
+
+
+class GmailMessage(BaseModel):
+    """Satu pesan dalam thread dari fetch_thread. SUDAH teredaksi."""
+
+    from_: str = Field(alias="from")  # sudah diredaksi
+    date: str
+    body_text: str          # sudah diredaksi, HTML sudah jadi teks
+    model_config = {"populate_by_name": True}
+
+
+class GmailAttachment(BaseModel):
+    """Metadata lampiran. Tidak mengunduh isinya."""
+
+    name: str
+    mime_type: str
+    size_bytes: int
+
+
+class GmailThread(BaseModel):
+    """Isi lengkap satu thread dari fetch_thread. SUDAH teredaksi."""
+
+    thread_id: str
+    subject: str            # sudah diredaksi
+    from_domain: str
+    messages: list[GmailMessage]
+    attachments: list[GmailAttachment]
+
+    model_config = {"populate_by_name": True}
+
+
+class GmailLabelResult(BaseModel):
+    """Hasil label_thread."""
+
+    applied: list[str]      # label yang dipasang
+    removed: list[str]      # label lama yang dihapus
+
+
+class GmailArchiveResult(BaseModel):
+    """Hasil archive_thread."""
+
+    archived: bool
+
+
+class GmailDraftResult(BaseModel):
+    """Hasil create_draft_reply."""
+
+    draft_id: str
+
+
+class GmailClient(Protocol):
+    """Antarmuka klien Gmail. Diimplementasikan GmailAPIClient & Mock.
+
+    Tool memanggil method ini dengan data MENTAH (belum diredaksi).
+    Tanggung jawab redaksi ada di tool (lihat tools.py), karena tool
+    yang memegang PiiMap lewat ToolContext.
+
+    Method yang raise exception tidak diketahui akan dikonversi
+    dispatcher menjadi ToolResult(INTERNAL).
+    """
+
+    def list_threads(
+        self,
+        *,
+        unread_only: bool,
+        newer_than_days: int,
+        in_inbox: bool,
+        sender_domain: str,
+        max_results: int,
+    ) -> list[GmailThreadSummary]:
+        """Kembalikan thread MENTAH (belum diredaksi)."""
+        ...
+
+    def get_thread(
+        self, *, thread_id: str, max_messages: int
+    ) -> GmailThread:
+        """Kembalikan isi thread MENTAH (belum diredaksi)."""
+        ...
+
+    def apply_labels(
+        self,
+        *,
+        thread_id: str,
+        category: str,
+        priority: str,
+        reason: str,
+    ) -> GmailLabelResult:
+        """Pasang label Kategori/<category> dan Prioritas/<priority>.
+        Hapus label Kategori/* dan Prioritas/* lama dulu."""
+        ...
+
+    def archive(self, *, thread_id: str) -> GmailArchiveResult:
+        """Hapus label INBOX."""
+        ...
+
+    def create_draft(
+        self,
+        *,
+        thread_id: str,
+        body: str,
+    ) -> GmailDraftResult:
+        """Buat draft balasan di thread yang sama."""
+        ...
+
+
+# ══════════════════════════════════════════════════════════════════
+# Argumen tool (dipakai dispatcher untuk validasi Pydantic)
+# ══════════════════════════════════════════════════════════════════
+
 
 class ScanEmailsArgs(_Args):
+    """Argumen scan_emails.
+
+    Filter terstruktur: LLM TIDAK menulis query Gmail. Tool yang menyusun
+    query, mis. is:unread newer_than:7d in:inbox.
+    """
+
     unread_only: bool = True
     newer_than_days: int = Field(default=7, ge=1, le=90)
     in_inbox: bool = True
-    sender_domain: str = Field(default="", max_length=253, pattern=_DOMAIN_PATTERN)
+    sender_domain: str = ""  # default string kosong, BUKAN None
     max_results: int = Field(default=10, ge=1, le=50)
 
+    @field_validator("sender_domain")
+    @classmethod
+    def _validasi_domain(cls, v: str) -> str:
+        """Domain harus valid atau kosong. Mencegah injeksi query Gmail.
+
+        Jika LLM mengirim domain tidak valid, dispatcher mengonversi
+        error Pydantic ini menjadi ToolResult(VALIDATION), sehingga
+        LLM bisa koreksi (maks 2).
+        """
+        if not v:
+            return ""
+        v = v.strip().lower()
+        if not _DOMAIN_RE.match(v):
+            raise ValueError(
+                f"sender_domain tidak valid: {v!r}. "
+                f"Contoh yang benar: 'univ.ac.id'"
+            )
+        return v
 
 class FetchThreadArgs(_Args):
     thread_id: str = _THREAD_ID
@@ -51,7 +208,7 @@ class LabelThreadArgs(_Args):
 
     @field_validator("priority")
     @classmethod
-    def promosi_spam_selalu_nanti(cls, v, info):
+    def _promosi_spam_selalu_nanti(cls, v, info):
         if info.data.get("category") in ("Promosi", "Spam") and v != "Nanti":
             raise ValueError("Promosi dan Spam selalu Nanti")
         return v
@@ -66,45 +223,18 @@ class CreateDraftReplyArgs(_Args):
     body: str = Field(min_length=1)
 
 
-class TrashThreadArgs(_Args):
-    """Setelah MVP. Dispatcher hanya mengeksekusi jika ada ReviewDecision approved."""
-    thread_id: str = _THREAD_ID
-
-
-# ---------------------------------------------------------- isi ToolResult.data
-
-class ThreadSummary(BaseModel):
-    thread_id: str
-    subject: str
-    from_domain: str
-    snippet: str
-    date: str
-    message_count: int
-    has_attachments: bool
+# ══════════════════════════════════════════════════════════════════
+# Hasil tool (dikembalikan sebagai data ToolResult)
+# ══════════════════════════════════════════════════════════════════
 
 
 class ScanEmailsResult(BaseModel):
-    threads: list[ThreadSummary]
-
-
-class MessageView(BaseModel):
-    from_: str = Field(alias="from")  # 'from' keyword Python
-    date: str
-    body_text: str
-
-    model_config = {"populate_by_name": True}
-
-
-class AttachmentMeta(BaseModel):
-    name: str
-    mime_type: str
-    size_bytes: int
+    threads: list[GmailThreadSummary]
+    query: str  # query Gmail yang disusun tool, untuk debugging/log
 
 
 class FetchThreadResult(BaseModel):
-    subject: str
-    messages: list[MessageView]
-    attachments: list[AttachmentMeta] = Field(default_factory=list)
+    thread: GmailThread
 
 
 class LabelThreadResult(BaseModel):
@@ -118,48 +248,3 @@ class ArchiveThreadResult(BaseModel):
 
 class CreateDraftReplyResult(BaseModel):
     draft_id: str
-
-
-class TrashThreadResult(BaseModel):
-    trashed: bool
-
-
-# ---------------------------------------------------------- registry
-
-TOOL_ARGS: dict[str, type[BaseModel]] = {
-    "scan_emails": ScanEmailsArgs,
-    "fetch_thread": FetchThreadArgs,
-    "label_thread": LabelThreadArgs,
-    "archive_thread": ArchiveThreadArgs,
-    "create_draft_reply": CreateDraftReplyArgs,
-    "trash_thread": TrashThreadArgs,
-}
-
-TOOL_DESCRIPTIONS: dict[str, str] = {
-    "scan_emails": "Cari thread email dengan filter terstruktur; mengembalikan metadata dan snippet teredaksi.",
-    "fetch_thread": "Ambil isi teks teredaksi sebuah thread (pesan terakhir) dan metadata lampiran.",
-    "label_thread": "Pasang satu label kategori dan satu label prioritas pada thread; label lama diganti.",
-    "archive_thread": "Arsipkan thread (hapus dari INBOX). Tidak menghapus email.",
-    "create_draft_reply": "Buat draft balasan (tidak dikirim). Penerima dan subjek diambil dari thread.",
-    "trash_thread": "Pindahkan thread ke Sampah. Hanya dengan persetujuan pengguna per item.",
-}
-
-MVP_TOOLS: frozenset[str] = frozenset(
-    {"scan_emails", "fetch_thread", "label_thread", "archive_thread", "create_draft_reply"}
-)
-
-
-def openai_tool_schemas(names: frozenset[str] | set[str] = MVP_TOOLS) -> list[dict[str, Any]]:
-    """Skema tool format OpenAI Chat Completions, urut sesuai TOOL_ARGS."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": TOOL_DESCRIPTIONS[name],
-                "parameters": model.model_json_schema(),
-            },
-        }
-        for name, model in TOOL_ARGS.items()
-        if name in names
-    ]

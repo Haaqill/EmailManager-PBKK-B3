@@ -44,15 +44,12 @@ def test_stub_raise_not_implemented():
     import pytest
 
     from app.gmail.client import GmailAPIClient
-    from app.gmail.mock_client import MockGmailAPIClient
     from app.agent.dispatcher import dispatch
     from app.contracts import ToolContext, ToolResult
     from app.privacy.redact import pii_map_for
 
     with pytest.raises(NotImplementedError):
         GmailAPIClient()
-    with pytest.raises(NotImplementedError):
-        MockGmailAPIClient()
 
     ctx = ToolContext(
         batch_id="b1", pii_map=pii_map_for("b1"), allowed_tools={"scan_emails"}

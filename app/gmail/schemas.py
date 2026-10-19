@@ -17,13 +17,23 @@ from __future__ import annotations
 
 from typing import Protocol
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.contracts import Category, Priority
 
 _DOMAIN_RE = re.compile(
     r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
 )
+
+# thread_id Gmail hanya huruf, angka, _ dan -; menolak sisipan seperti "t001 OR x".
+_THREAD_ID = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class _Args(BaseModel):
+    """Basis argumen tool: argumen tak dikenal (mis. to_email) ditolak,
+    sehingga dispatcher mengembalikan VALIDATION, bukan diam-diam diabaikan."""
+
+    model_config = ConfigDict(extra="forbid")
 
 # ══════════════════════════════════════════════════════════════════
 # Protokol klien Gmail
@@ -153,7 +163,7 @@ class GmailClient(Protocol):
 # ══════════════════════════════════════════════════════════════════
 
 
-class ScanEmailsArgs(BaseModel):
+class ScanEmailsArgs(_Args):
     """Argumen scan_emails.
 
     Filter terstruktur: LLM TIDAK menulis query Gmail. Tool yang menyusun
@@ -185,24 +195,31 @@ class ScanEmailsArgs(BaseModel):
             )
         return v
 
-class FetchThreadArgs(BaseModel):
-    thread_id: str = Field(min_length=1)
+class FetchThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
     max_messages: int = Field(default=5, ge=1, le=20)
 
 
-class LabelThreadArgs(BaseModel):
-    thread_id: str = Field(min_length=1)
+class LabelThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
     category: Category
     priority: Priority
     reason: str = Field(max_length=200)
 
+    @field_validator("priority")
+    @classmethod
+    def _promosi_spam_selalu_nanti(cls, v, info):
+        if info.data.get("category") in ("Promosi", "Spam") and v != "Nanti":
+            raise ValueError("Promosi dan Spam selalu Nanti")
+        return v
 
-class ArchiveThreadArgs(BaseModel):
-    thread_id: str = Field(min_length=1)
+
+class ArchiveThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
 
 
-class CreateDraftReplyArgs(BaseModel):
-    thread_id: str = Field(min_length=1)
+class CreateDraftReplyArgs(_Args):
+    thread_id: str = _THREAD_ID
     body: str = Field(min_length=1)
 
 

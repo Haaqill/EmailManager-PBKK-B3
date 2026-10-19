@@ -1,12 +1,23 @@
 # Secrets
 .env
+.env.*
+!.env.example
 credentials.json
+client_secret*.json
 token.json
+token*.json
 *.pem
 
 # Logs
 *.log
 logs/
+*.jsonl
+
+# Local data
+*.sqlite
+*.sqlite3
+*.db
+chroma/
 
 # Python
 __pycache__/

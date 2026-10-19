@@ -196,12 +196,12 @@ def _bersihkan_registry():
 
 @pytest.fixture
 def pii_map():
-    """PiiMap kosong — redact() stub mengembalikan teks apa adanya."""
+    """PiiMap asli dari kontrak 3, satu per tes; dibebaskan setelah tes."""
+    from app.privacy.redact import pii_map_for, release_pii_map
 
-    class _Map:
-        pass
-
-    return _Map()
+    peta = pii_map_for("test-gmail-tools")
+    yield peta
+    release_pii_map("test-gmail-tools")
 
 
 @pytest.fixture

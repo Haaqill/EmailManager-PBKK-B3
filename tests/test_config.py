@@ -74,16 +74,16 @@ def test_eval_path_default_jika_tidak_diisi(monkeypatch):
 
     cfg = load_config()
 
-    assert cfg.eval_dataset_path == "eval/dataset.jsonl"
+    assert cfg.eval_dataset_path == "eval/dataset.json"
 
 
 def test_eval_path_bisa_dioverride(monkeypatch):
     _set_mock_env(monkeypatch)
-    monkeypatch.setenv("EVAL_DATASET_PATH", "tests/fixtures/dataset.jsonl")
+    monkeypatch.setenv("EVAL_DATASET_PATH", "tests/fixtures/dataset.json")
 
     cfg = load_config()
 
-    assert cfg.eval_dataset_path == "tests/fixtures/dataset.jsonl"
+    assert cfg.eval_dataset_path == "tests/fixtures/dataset.json"
 
 
 # ── Skenario gagal: nilai tidak dikenal ──────────────────────────────

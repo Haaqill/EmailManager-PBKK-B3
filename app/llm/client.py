@@ -35,7 +35,7 @@ class LLMClient(Protocol):
     
 
 def make_llm(config=None) -> LLMClient:
-    """LLMClient sesuai LLM_BACKEND: campus → CampusLLM, mock → MockLLM kosong."""
+    """LLMClient sesuai LLM_BACKEND: campus → CampusLLM, mock → DatasetLLM (jawaban dari dataset)."""
     from app.config import get_config
 
     cfg = config or get_config()
@@ -43,6 +43,6 @@ def make_llm(config=None) -> LLMClient:
         from app.llm.campus import CampusLLM
 
         return CampusLLM(cfg)
-    from app.llm.mock import MockLLM
+    from app.llm.mock import DatasetLLM
 
-    return MockLLM()
+    return DatasetLLM(cfg.eval_dataset_path)

@@ -7,7 +7,7 @@ Perubahan wajib direview pemilik kedua sisi kontrak.
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Generic, Literal, Protocol, TypeVar, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ─────────────────────────────────────────────────────────────
@@ -81,10 +81,12 @@ class ToolResult(BaseModel, Generic[T]):
 
 @dataclass
 class ToolContext:
-    """Diisi dispatcher, tidak pernah oleh LLM."""
+    """Konteks eksekusi. Diisi dispatcher, TIDAK PERNAH oleh LLM."""
+
     batch_id: str
     pii_map: "PiiMap"
     allowed_tools: set[str]
+    gmail_client: Any = None  # GmailClient; Any untuk hindari circular import
 
 # ─────────────────────────────────────────────────────────────
 # 3. Redaksi PII (USULAN) — detail di app/privacy/redact.py

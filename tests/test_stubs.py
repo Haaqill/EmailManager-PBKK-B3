@@ -25,16 +25,6 @@ def test_import_semua_modul():
     import app.ui.streamlit_app  # noqa: F401
 
 
-def test_redact_stub_mengembalikan_teks():
-    """Stub redact harus pass-through agar B bisa jalan."""
-    from app.privacy.redact import redact, restore, pii_map_for, html_to_text
-
-    peta = pii_map_for("batch-1")
-    assert redact("halo dunia", peta) == "halo dunia"
-    assert restore("halo dunia", peta) == "halo dunia"
-    assert html_to_text("<p>halo</p>") == "<p>halo</p>"
-
-
 def test_injection_stub_mengembalikan_teks():
     from app.privacy.injection import wrap_email_content
 

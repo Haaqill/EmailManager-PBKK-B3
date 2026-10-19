@@ -1,6 +1,8 @@
-"""InboxState untuk workflow LangGraph (M2, A).
+"""InboxState untuk workflow LangGraph (A).
 
-STUB. Implementasi diisi di M2.
+State hanya berisi data TEREDAKSI dan tipe sederhana (dict/list), supaya
+aman disimpan checkpointer. PiiMap TIDAK PERNAH masuk state; node mengambilnya
+lagi dengan pii_map_for(batch_id).
 """
 from __future__ import annotations
 
@@ -8,14 +10,13 @@ from typing import TypedDict
 
 
 class InboxState(TypedDict, total=False):
-    """State workflow. Akan diisi di M2:
-
     batch_id: str
-    pii_map_ref: str           # batch_id saja, JANGAN pii_map
-    threads: list[dict]
-    plan: list[dict]           # list[PlanItem] setelah Pydantic
-    decisions: list[dict]      # list[ReviewDecision]
-    action_history: list[dict] # list[ActionRecord]
+    batch_size: int
+    threads: list[dict]          # FetchThreadResult.thread teredaksi (model_dump by_alias)
+    classifications: list[dict]  # ClassificationOutput yang lolos validasi
+    drafts: dict[str, str]       # thread_id -> body draft (teredaksi)
+    plan: list[dict]             # PlanItem.model_dump()
+    decisions: list[dict]        # ReviewDecision.model_dump(), diisi UI lewat update_state
+    action_history: list[dict]   # ActionRecord.model_dump()
+    errors: list[dict]           # {"thread_id", "stage", "message"}
     report: dict
-    error: str | None
-    """

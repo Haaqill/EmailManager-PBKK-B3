@@ -43,22 +43,16 @@ def test_stub_raise_not_implemented():
     """Stub kelas yang belum diisi harus raise NotImplementedError."""
     import pytest
 
-    from app.llm.campus import CampusLLM
     from app.gmail.client import GmailAPIClient
     from app.gmail.mock_client import MockGmailAPIClient
-    from app.agent.graph import InboxGraph
     from app.agent.dispatcher import dispatch
     from app.contracts import ToolContext, ToolResult
     from app.privacy.redact import pii_map_for
 
     with pytest.raises(NotImplementedError):
-        CampusLLM()
-    with pytest.raises(NotImplementedError):
         GmailAPIClient()
     with pytest.raises(NotImplementedError):
         MockGmailAPIClient()
-    with pytest.raises(NotImplementedError):
-        InboxGraph()
 
     ctx = ToolContext(
         batch_id="b1", pii_map=pii_map_for("b1"), allowed_tools={"scan_emails"}

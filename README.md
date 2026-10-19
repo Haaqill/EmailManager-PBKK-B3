@@ -17,3 +17,9 @@ cp .env.example .env
 # 5.
 pytest  # harus hijau
 ```
+
+### Dataset mock
+
+`eval/dataset.json` adalah array JSON dengan satu objek `DatasetRow` per thread.
+`MockGmailAPIClient` membaca file ini dan menyimpan perubahan label, arsip, serta
+draft hanya selama proses berjalan.

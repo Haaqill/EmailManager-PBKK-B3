@@ -1,283 +1,165 @@
+"""Skema argumen dan hasil tool Gmail (kontrak 2, B).
+
+Aturan skema argumen (dibaca LLM):
+- extra="forbid": argumen tak dikenal (mis. to_email) menjadi VALIDATION.
+- Tanpa `X | None`: Pydantic menulisnya sebagai anyOf, yang belum tentu
+  ditangani model kampus. Pakai nilai default.
+- LLM tidak menulis query Gmail; scan_emails menerima filter terstruktur.
+- create_draft_reply hanya thread_id + body; penerima dan subjek diambil
+  tool dari header thread, supaya isi email tidak bisa mengalihkan penerima.
+
+Tidak ada tool untuk mengirim email atau menghapus permanen.
 """
-Gmail API Tool Schemas for Agentic AI Inbox Manager
-Phase 2 - Step 1: Typed Pydantic models, JSON Schema exports, and execution stubs.
-"""
+from __future__ import annotations
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, EmailStr
-import json
+from typing import Any
 
-# =====================================================================
-# 1. PYDANTIC TOOL PARAMETER SCHEMAS
-# =====================================================================
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-class ListUnreadEmailsInput(BaseModel):
-    """Parameters for retrieving unread emails from the Gmail inbox."""
-    max_results: int = Field(
-        default=10, 
-        ge=1, 
-        le=50, 
-        description="Maximum number of email threads to retrieve (1-50)."
-    )
-    query: Optional[str] = Field(
-        default="is:unread category:primary", 
-        description="Optional Gmail search query filter (e.g. 'is:unread newer_than:2d')."
-    )
-    include_spam_trash: bool = Field(
-        default=False, 
-        description="Whether to include messages from SPAM and TRASH folders."
-    )
+from app.contracts import Category, Priority
+
+_THREAD_ID = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+# Domain polos (mis. univ.ac.id) atau kosong. Mencegah operator query
+# seperti "x.com OR in:trash" masuk ke query Gmail.
+_DOMAIN_PATTERN = r"^$|^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
 
 
-class GetThreadHistoryInput(BaseModel):
-    """Parameters for fetching full thread conversation history."""
-    thread_id: str = Field(
-        ..., 
-        description="The unique Gmail thread identifier (e.g., '18c5e2a91f4b802a')."
-    )
-    max_messages: int = Field(
-        default=5, 
-        ge=1, 
-        le=20, 
-        description="Maximum number of recent messages in the thread to fetch."
-    )
+class _Args(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
-class ApplyLabelInput(BaseModel):
-    """Parameters for applying a user or system label to an email thread."""
-    thread_id: str = Field(
-        ..., 
-        description="The unique Gmail thread identifier."
-    )
-    label_name: str = Field(
-        ..., 
-        description="Name of the label to apply (e.g. 'URGENT', 'FINANCE', 'NEWSLETTER')."
-    )
+# ---------------------------------------------------------- argumen tool
+
+class ScanEmailsArgs(_Args):
+    unread_only: bool = True
+    newer_than_days: int = Field(default=7, ge=1, le=90)
+    in_inbox: bool = True
+    sender_domain: str = Field(default="", max_length=253, pattern=_DOMAIN_PATTERN)
+    max_results: int = Field(default=10, ge=1, le=50)
 
 
-class ArchiveThreadInput(BaseModel):
-    """Parameters for archiving an email thread (removes INBOX label)."""
-    thread_id: str = Field(
-        ..., 
-        description="The unique Gmail thread identifier to archive."
-    )
+class FetchThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
+    max_messages: int = Field(default=5, ge=1, le=20)
 
 
-class TrashThreadInput(BaseModel):
-    """Parameters for moving a spam or junk email thread to Trash."""
-    thread_id: str = Field(
-        ..., 
-        description="The unique Gmail thread identifier to move to trash."
-    )
+class LabelThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
+    category: Category
+    priority: Priority
+    reason: str = Field(max_length=200)
+
+    @field_validator("priority")
+    @classmethod
+    def promosi_spam_selalu_nanti(cls, v, info):
+        if info.data.get("category") in ("Promosi", "Spam") and v != "Nanti":
+            raise ValueError("Promosi dan Spam selalu Nanti")
+        return v
 
 
-class CreateDraftInput(BaseModel):
-    """Parameters for creating a reply draft in Gmail."""
-    thread_id: str = Field(
-        ..., 
-        description="The Gmail thread ID to reply to."
-    )
-    to_email: str = Field(
-        ..., 
-        description="Recipient email address."
-    )
-    subject: str = Field(
-        ..., 
-        description="Subject line for the reply message."
-    )
-    body: str = Field(
-        ..., 
-        description="The body text of the reply email draft."
-    )
+class ArchiveThreadArgs(_Args):
+    thread_id: str = _THREAD_ID
 
 
-class SendEmailInput(BaseModel):
-    """Parameters for directly sending an email response via Gmail API."""
-    thread_id: str = Field(
-        ..., 
-        description="The Gmail thread ID to attach the message to."
-    )
-    to_email: str = Field(
-        ..., 
-        description="Recipient email address."
-    )
-    subject: str = Field(
-        ..., 
-        description="Subject line for the outgoing email."
-    )
-    body: str = Field(
-        ..., 
-        description="Body text of the message."
-    )
-    draft_id: Optional[str] = Field(
-        default=None, 
-        description="Optional draft ID if converting a previously reviewed draft into a sent email."
-    )
+class CreateDraftReplyArgs(_Args):
+    thread_id: str = _THREAD_ID
+    body: str = Field(min_length=1)
 
 
-# =====================================================================
-# 2. TOOL REGISTRY & FUNCTION CALLING SCHEMA GENERATOR
-# =====================================================================
-
-GMAIL_TOOLS = [
-    {
-        "name": "list_unread_emails",
-        "description": "Fetches a list of unread email threads from the user's primary inbox.",
-        "parameters": ListUnreadEmailsInput.model_json_schema()
-    },
-    {
-        "name": "get_thread_history",
-        "description": "Retrieves the full message history and body text for a specific email thread ID.",
-        "parameters": GetThreadHistoryInput.model_json_schema()
-    },
-    {
-        "name": "apply_label",
-        "description": "Applies a descriptive tag/label to an email thread for organization.",
-        "parameters": ApplyLabelInput.model_json_schema()
-    },
-    {
-        "name": "archive_thread",
-        "description": "Archives an email thread by removing it from the INBOX view without deleting.",
-        "parameters": ArchiveThreadInput.model_json_schema()
-    },
-    {
-        "name": "trash_thread",
-        "description": "Moves an email thread to TRASH (for junk or spam messages).",
-        "parameters": TrashThreadInput.model_json_schema()
-    },
-    {
-        "name": "create_draft",
-        "description": "Creates an un-sent email draft in Gmail for user review.",
-        "parameters": CreateDraftInput.model_json_schema()
-    },
-    {
-        "name": "send_email",
-        "description": "Sends an email message directly to the recipient via Gmail REST API.",
-        "parameters": SendEmailInput.model_json_schema()
-    }
-]
+class TrashThreadArgs(_Args):
+    """Setelah MVP. Dispatcher hanya mengeksekusi jika ada ReviewDecision approved."""
+    thread_id: str = _THREAD_ID
 
 
-def get_openai_function_tools() -> List[Dict[str, Any]]:
-    """Exports tools formatted for OpenAI / LangChain Function Calling."""
+# ---------------------------------------------------------- isi ToolResult.data
+
+class ThreadSummary(BaseModel):
+    thread_id: str
+    subject: str
+    from_domain: str
+    snippet: str
+    date: str
+    message_count: int
+    has_attachments: bool
+
+
+class ScanEmailsResult(BaseModel):
+    threads: list[ThreadSummary]
+
+
+class MessageView(BaseModel):
+    from_: str = Field(alias="from")  # 'from' keyword Python
+    date: str
+    body_text: str
+
+    model_config = {"populate_by_name": True}
+
+
+class AttachmentMeta(BaseModel):
+    name: str
+    mime_type: str
+    size_bytes: int
+
+
+class FetchThreadResult(BaseModel):
+    subject: str
+    messages: list[MessageView]
+    attachments: list[AttachmentMeta] = Field(default_factory=list)
+
+
+class LabelThreadResult(BaseModel):
+    applied: list[str]
+    removed: list[str]
+
+
+class ArchiveThreadResult(BaseModel):
+    archived: bool
+
+
+class CreateDraftReplyResult(BaseModel):
+    draft_id: str
+
+
+class TrashThreadResult(BaseModel):
+    trashed: bool
+
+
+# ---------------------------------------------------------- registry
+
+TOOL_ARGS: dict[str, type[BaseModel]] = {
+    "scan_emails": ScanEmailsArgs,
+    "fetch_thread": FetchThreadArgs,
+    "label_thread": LabelThreadArgs,
+    "archive_thread": ArchiveThreadArgs,
+    "create_draft_reply": CreateDraftReplyArgs,
+    "trash_thread": TrashThreadArgs,
+}
+
+TOOL_DESCRIPTIONS: dict[str, str] = {
+    "scan_emails": "Cari thread email dengan filter terstruktur; mengembalikan metadata dan snippet teredaksi.",
+    "fetch_thread": "Ambil isi teks teredaksi sebuah thread (pesan terakhir) dan metadata lampiran.",
+    "label_thread": "Pasang satu label kategori dan satu label prioritas pada thread; label lama diganti.",
+    "archive_thread": "Arsipkan thread (hapus dari INBOX). Tidak menghapus email.",
+    "create_draft_reply": "Buat draft balasan (tidak dikirim). Penerima dan subjek diambil dari thread.",
+    "trash_thread": "Pindahkan thread ke Sampah. Hanya dengan persetujuan pengguna per item.",
+}
+
+MVP_TOOLS: frozenset[str] = frozenset(
+    {"scan_emails", "fetch_thread", "label_thread", "archive_thread", "create_draft_reply"}
+)
+
+
+def openai_tool_schemas(names: frozenset[str] | set[str] = MVP_TOOLS) -> list[dict[str, Any]]:
+    """Skema tool format OpenAI Chat Completions, urut sesuai TOOL_ARGS."""
     return [
         {
             "type": "function",
             "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["parameters"]
-            }
+                "name": name,
+                "description": TOOL_DESCRIPTIONS[name],
+                "parameters": model.model_json_schema(),
+            },
         }
-        for tool in GMAIL_TOOLS
+        for name, model in TOOL_ARGS.items()
+        if name in names
     ]
-
-
-# =====================================================================
-# 3. MOCK EXECUTION STUBS (FOR AGENT TESTING & PROTOTYPING)
-# =====================================================================
-
-class MockGmailAPIClient:
-    """Mock implementation of the Gmail API for testing the ReAct agent loop locally."""
-
-    @staticmethod
-    def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Dispatches tool calls to mock API handlers and returns structured observation results."""
-        if tool_name == "list_unread_emails":
-            params = ListUnreadEmailsInput(**arguments)
-            return {
-                "status": "success",
-                "count": 2,
-                "threads": [
-                    {
-                        "thread_id": "thread_101",
-                        "sender": "boss@company.com",
-                        "subject": "Q4 Strategy Review Sync",
-                        "snippet": "Can you prepare the slides for tomorrow's meeting?",
-                        "date": "2026-10-08T09:15:00Z"
-                    },
-                    {
-                        "thread_id": "thread_102",
-                        "sender": "newsletter@techdigest.io",
-                        "subject": "Weekly AI Digest #245",
-                        "snippet": "Top 10 trends in agentic AI architecture for 2026...",
-                        "date": "2026-10-08T07:30:00Z"
-                    }
-                ]
-            }
-
-        elif tool_name == "get_thread_history":
-            params = GetThreadHistoryInput(**arguments)
-            return {
-                "status": "success",
-                "thread_id": params.thread_id,
-                "messages": [
-                    {
-                        "id": "msg_001",
-                        "sender": "boss@company.com",
-                        "body": "Hi, please send over the Q4 strategy deck before 3 PM today.",
-                        "timestamp": "2026-10-08T09:15:00Z"
-                    }
-                ]
-            }
-
-        elif tool_name == "apply_label":
-            params = ApplyLabelInput(**arguments)
-            return {
-                "status": "success",
-                "thread_id": params.thread_id,
-                "applied_label": params.label_name
-            }
-
-        elif tool_name == "archive_thread":
-            params = ArchiveThreadInput(**arguments)
-            return {
-                "status": "success",
-                "thread_id": params.thread_id,
-                "action": "archived",
-                "removed_labels": ["INBOX"]
-            }
-
-        elif tool_name == "trash_thread":
-            params = TrashThreadInput(**arguments)
-            return {
-                "status": "success",
-                "thread_id": params.thread_id,
-                "action": "trashed"
-            }
-
-        elif tool_name == "create_draft":
-            params = CreateDraftInput(**arguments)
-            return {
-                "status": "success",
-                "draft_id": "draft_999",
-                "thread_id": params.thread_id,
-                "to": params.to_email,
-                "subject": params.subject,
-                "body_preview": params.body[:50] + "..."
-            }
-
-        elif tool_name == "send_email":
-            params = SendEmailInput(**arguments)
-            return {
-                "status": "success",
-                "message_id": "msg_sent_777",
-                "thread_id": params.thread_id,
-                "recipient": params.to_email,
-                "delivery_timestamp": "2026-10-08T22:45:00Z"
-            }
-
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
-
-
-if __name__ == "__main__":
-    print("=== Gmail Tool Schemas Successfully Loaded ===")
-    print(f"Total Tools Registered: {len(GMAIL_TOOLS)}")
-    print("\nSample OpenAI Tool Schema (list_unread_emails):")
-    sample_tools = get_openai_function_tools()
-    print(json.dumps(sample_tools[0], indent=2))
-    
-    print("\nExecuting Test Call to Mock Client:")
-    res = MockGmailAPIClient.execute_tool("list_unread_emails", {"max_results": 5})
-    print(json.dumps(res, indent=2))

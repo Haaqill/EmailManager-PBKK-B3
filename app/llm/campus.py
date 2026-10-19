@@ -7,6 +7,9 @@
   LLMUnavailableError. Status 4xx lain langsung LLMUnavailableError.
 - 429 (rate limit): jeda retry mengikuti header Retry-After atau "Limit resets at"
   di isi pesan gateway, dibatasi 1-60 detik; tanpa petunjuk, pakai jeda biasa.
+- Timeout (LLM_TIMEOUT_S, default 120): server mungkin masih memproses permintaan
+  yang ditinggalkan dan memakai slot paralel key kita, jadi retry menunggu 60 detik.
+- Pesan LLMUnavailableError memuat riwayat percobaan (mis. timeout → 429 → 429).
 - Output rusak (arguments bukan objek JSON, atau tidak ada tool_call padahal
   tools diberikan): dikoreksi maks 2 kali, lalu LLMOutputError.
 - usage dijumlahkan dari semua percobaan dalam satu panggilan.
@@ -40,6 +43,7 @@ from app.llm.transport import (
 
 
 RATE_LIMIT_MAX_WAIT_S = 60.0
+TIMEOUT_RETRY_WAIT_S = 60.0
 _RESETS_AT_RE = re.compile(r"Limit resets at: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC")
 
 
@@ -79,8 +83,19 @@ class _RateLimitAwareWait(wait_base):
         self.fallback = fallback
 
     def __call__(self, retry_state) -> float:
-        delay = rate_limit_delay(retry_state.outcome.exception())
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, LLMHTTPError) and exc.timed_out:
+            return TIMEOUT_RETRY_WAIT_S
+        delay = rate_limit_delay(exc)
         return delay if delay is not None else self.fallback(retry_state)
+
+
+def _attempt_label(exc: BaseException) -> str:
+    if isinstance(exc, LLMHTTPError):
+        if exc.timed_out:
+            return "timeout"
+        return f"HTTP {exc.status}" if exc.status else "koneksi gagal"
+    return type(exc).__name__
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -110,7 +125,8 @@ class CampusLLM:
             )
         self._config = cfg
         self._endpoint = LLMConfig(
-            base_url=cfg.llm_base_url, api_key=cfg.llm_api_key, model=cfg.llm_model
+            base_url=cfg.llm_base_url, api_key=cfg.llm_api_key, model=cfg.llm_model,
+            timeout_s=cfg.llm_timeout_s,
         )
         self._send = send
         self._max_retries = max_retries
@@ -168,6 +184,7 @@ class CampusLLM:
     def _post(self, messages: list[dict], tools: list[dict] | None, totals: dict) -> dict:
         """Satu permintaan dengan retry untuk server mati. Menjumlahkan usage."""
         attempts = 0
+        history: list[str] = []
         try:
             for attempt in Retrying(
                 stop=stop_after_attempt(self._max_retries + 1),
@@ -181,12 +198,16 @@ class CampusLLM:
                     started = time.perf_counter()
                     try:
                         data, _ = self._send(self._endpoint, messages, tools=tools)
+                    except LLMHTTPError as exc:
+                        history.append(_attempt_label(exc))
+                        raise
                     finally:
                         totals["latency_ms"] += int((time.perf_counter() - started) * 1000)
         except RetryError as exc:
             last = exc.last_attempt.exception()
             raise LLMUnavailableError(
-                f"LLM kampus tidak tersedia setelah {self._max_retries} retry: {last}"
+                f"LLM kampus tidak tersedia setelah {self._max_retries} retry "
+                f"(percobaan: {' → '.join(history)}): {last}"
             ) from None
         except LLMHTTPError as exc:
             raise LLMUnavailableError(f"LLM kampus menolak permintaan: {exc}") from None

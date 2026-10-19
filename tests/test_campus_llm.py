@@ -175,3 +175,30 @@ def test_retry_503_tetap_pakai_jeda_biasa():
     send = FakeSend(LLMHTTPError(503, "down"), resp([call()]))
     CampusLLM(CFG, send=send, wait=wait_none(), sleep=sleeps.append).call_llm([], TOOLS)
     assert sleeps == [0]
+
+
+# ---------------------------------------------------------- timeout
+def test_timeout_dari_config_dipakai_transport():
+    seen = []
+
+    def send(cfg, messages, tools=None, **_):
+        seen.append(cfg.timeout_s)
+        return resp([call()]), 0.0
+
+    CampusLLM(Config(**{**CFG.__dict__, "llm_timeout_s": 150.0}), send=send).call_llm([], TOOLS)
+    assert seen == [150.0]
+
+
+def test_retry_setelah_timeout_menunggu_60_detik():
+    sleeps = []
+    send = FakeSend(LLMHTTPError(None, "Timeout setelah 120 detik", timed_out=True), resp([call()]))
+    CampusLLM(CFG, send=send, wait=wait_none(), sleep=sleeps.append).call_llm([], TOOLS)
+    assert sleeps == [60.0]
+
+
+def test_pesan_error_memuat_riwayat_percobaan():
+    send = FakeSend(LLMHTTPError(None, "Timeout", timed_out=True),
+                    *[LLMHTTPError(429, "Limit resets at: 2000-01-01 00:00:00 UTC")] * 3)
+    llm = CampusLLM(CFG, send=send, wait=wait_none(), sleep=lambda s: None)
+    with pytest.raises(LLMUnavailableError, match="timeout → HTTP 429 → HTTP 429 → HTTP 429"):
+        llm.call_llm([], TOOLS)

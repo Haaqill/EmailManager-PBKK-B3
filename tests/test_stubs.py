@@ -12,6 +12,7 @@ def test_import_semua_modul():
     import app.agent.dispatcher
     import app.agent.graph
     import app.agent.prompts
+    import app.agent.react_loop
     import app.agent.state
     import app.gmail.client
     import app.gmail.mock_client

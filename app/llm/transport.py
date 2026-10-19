@@ -1,4 +1,8 @@
-"""Adapter HTTP tunggal ke LLM kampus: `call_llm()` (Fase 0).
+"""Transport HTTP mentah ke LLM kampus: `send_chat_request()`.
+
+Dipakai smoke_test_llm.py, dan bisa dipakai CampusLLM sebagai lapisan bawah.
+Sengaja tidak bernama `call_llm` agar tidak tertukar dengan LLMClient.call_llm
+(kontrak 1), yang mengembalikan LLMResponse.
 
 Hanya memakai pustaka standar, jadi tidak bergantung pada SDK tertentu.
 Jika ternyata API kampus tidak OpenAI-compatible, cukup ubah fungsi ini
@@ -19,7 +23,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
-from config import LOOPBACK_HOSTS, LLMConfig
+from app.config import LOOPBACK_HOSTS, LLMConfig
 
 
 class LLMHTTPError(RuntimeError):
@@ -43,7 +47,7 @@ def _opener(url: str) -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(*handlers)
 
 
-def call_llm(cfg: LLMConfig, messages: list[dict[str, Any]],
+def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
              tools: list[dict[str, Any]] | None = None,
              **extra: Any) -> tuple[dict[str, Any], float]:
     """Kirim satu permintaan chat completions. Mengembalikan (json_respons, detik)."""

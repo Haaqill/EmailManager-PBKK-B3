@@ -441,7 +441,7 @@ def test_api_client_loads_credentials_and_builds_gmail_service(monkeypatch):
     credentials = object()
     service = _FakeService(_api_thread())
 
-    monkeypatch.setattr(gmail_client, "get_credentials", lambda: credentials)
+    monkeypatch.setattr(gmail_client, "get_credentials", lambda **kwargs: credentials)
     monkeypatch.setattr(
         gmail_client,
         "build",
@@ -463,13 +463,44 @@ def test_api_client_turns_reauth_requirement_into_fatal_error(monkeypatch):
     monkeypatch.setattr(
         gmail_client,
         "get_credentials",
-        lambda: (_ for _ in ()).throw(
+        lambda **kwargs: (_ for _ in ()).throw(
             gmail_client.ReauthRequired("login ulang diperlukan")
         ),
     )
 
     with pytest.raises(FatalToolError, match="login ulang"):
         GmailAPIClient()
+
+
+def test_api_client_connection_check_does_not_expose_account_details():
+    service = _FakeService(_api_thread())
+    client = GmailAPIClient(service=service)
+
+    assert client.check_connection() is None
+    assert ("getProfile", {"userId": "me"}) in service.calls
+
+
+def test_api_client_connection_failure_has_safe_message():
+    service = _FakeService(_api_thread())
+    client = GmailAPIClient(service=service)
+    service.users_resource.getProfile = lambda **kwargs: _Request(_http_error(403))
+
+    with pytest.raises(FatalToolError, match="Koneksi Gmail gagal") as error:
+        client.check_connection()
+    assert "test error" not in str(error.value)
+
+
+def test_api_client_build_failure_has_safe_message(monkeypatch):
+    monkeypatch.setattr(gmail_client, "get_credentials", lambda **kwargs: object())
+    monkeypatch.setattr(
+        gmail_client,
+        "build",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("private detail")),
+    )
+
+    with pytest.raises(FatalToolError, match="client gagal disiapkan") as error:
+        GmailAPIClient()
+    assert "private detail" not in str(error.value)
 
 
 def test_api_client_retries_transient_errors_and_fails_fatally(monkeypatch):

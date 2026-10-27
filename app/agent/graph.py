@@ -12,6 +12,7 @@ fetch → classify → draft → build_plan → [berhenti] → review → execut
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -244,17 +245,21 @@ class InboxGraph:
         """
         tid = thread["thread_id"]
         name = tool["function"]["name"]
+        # Instruksi eksplisit di akhir pesan user: tanpa ini isi email (data) adalah satu-satunya
+        # konten user, dan model bisa menjawab/menanggapi email alih-alih memanggil tool.
+        task = f"\n\nTugasmu sekarang: panggil tool {name} untuk thread_id {tid}. Jangan jawab dengan teks."
         messages = [{"role": "system", "content": system},
-                    {"role": "user", "content": build_thread_message(thread)}]
+                    {"role": "user", "content": build_thread_message(thread) + task}]
+        problem = ""
         for attempt in range(MAX_CORRECTIONS + 1):
             try:
                 resp = self.llm.call_llm(messages, tools=[tool])
             except LLMOutputError as exc:
                 errors.append(_err(tid, stage, str(exc)))
                 return None
-            call = next((c for c in resp.tool_calls if c.name == name), None)
+            call = next((c for c in resp.tool_calls if _same_tool(c.name, name)), None)
             if call is None:
-                problem = f"tool {name} tidak dipanggil"
+                problem = _not_called_message(name, resp)
                 messages += [{"role": "assistant", "content": resp.content or ""},
                              {"role": "user", "content": f"{problem}. Panggil {name}."}]
             else:
@@ -272,6 +277,25 @@ class InboxGraph:
                     ]
         errors.append(_err(tid, stage, f"keluaran tetap tidak valid setelah {MAX_CORRECTIONS} koreksi: {problem}"))
         return None
+
+
+def _norm_tool_name(raw: str) -> str:
+    """`functions.submit_x`, `default_api:submit_x`, `submit_x:0`, ` Submit_X ` -> `submit_x`."""
+    name = re.sub(r":\d+$", "", (raw or "").strip().lower())
+    return re.split(r"[.:/]", name)[-1]
+
+
+def _same_tool(got: str, expected: str) -> bool:
+    return _norm_tool_name(got) == _norm_tool_name(expected)
+
+
+def _not_called_message(name: str, resp: Any) -> str:
+    """Pesan diagnostik: apa yang sebenarnya dikembalikan LLM (tanpa membocorkan isi panjang)."""
+    called = [c.name for c in resp.tool_calls]
+    text = (resp.content or "").strip().replace("\n", " ")[:80]
+    if called:
+        return f"tool {name} tidak dipanggil (LLM memanggil: {called})"
+    return f"tool {name} tidak dipanggil (LLM hanya membalas teks: {text!r})"
 
 
 def _err(thread_id: str, stage: str, message: str | None) -> dict:

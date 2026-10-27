@@ -2,7 +2,7 @@
 
 Jalankan dari root repo:  streamlit run app/ui/streamlit_app.py
 LLM_BACKEND=mock → DatasetLLM (offline); campus → LLM kampus.
-Gmail: MockGmailAPIClient dari eval/dataset.json (perubahan hanya di memori).
+Gmail backend dipilih lewat GMAIL_BACKEND di environment/.env/Streamlit secrets.
 """
 from __future__ import annotations
 
@@ -21,14 +21,15 @@ import streamlit as st
 from app.agent.graph import MAX_BATCH, InboxGraph
 from app.config import ConfigError, get_config
 from app.contracts import Category, FatalToolError, LLMUnavailableError, Priority
-from app.gmail.mock_client import MockGmailAPIClient
+from app.gmail.auth import OAuthConfigurationError, ReauthRequired, get_credentials
+from app.gmail.factory import GmailConfigError, gmail_backend, make_gmail_client
 from app.llm.client import make_llm
 from app.privacy.redact import pii_map_for
 from app.ui.review import plan_to_rows, report_lines, rows_to_decisions
 
 
-def _new_graph() -> InboxGraph:
-    return InboxGraph(make_llm(), MockGmailAPIClient())
+def _new_graph(backend: str) -> InboxGraph:
+    return InboxGraph(make_llm(), make_gmail_client(backend))
 
 
 def _reset_batch() -> None:
@@ -42,18 +43,55 @@ def main() -> None:
 
     try:
         cfg = get_config()
-        if "graph" not in st.session_state:
-            st.session_state.graph = _new_graph()
-    except (ConfigError, OSError, ValueError) as exc:
+        backend = gmail_backend(st.secrets)
+    except (ConfigError, GmailConfigError, OSError, ValueError) as exc:
+        st.error(f"Konfigurasi belum siap: {exc}")
+        return
+
+    with st.sidebar:
+        st.caption(f"LLM: **{cfg.llm_backend}** · Gmail: **{backend}**")
+        if backend == "gmail" and st.button("Login Gmail / perbarui sesi"):
+            try:
+                get_credentials(interactive=True)
+                st.session_state.pop("graph", None)
+                st.success("Login berhasil. Token tersimpan di keyring lokal.")
+                st.rerun()
+            except OAuthConfigurationError as exc:
+                st.error(f"Konfigurasi OAuth Gmail tidak cocok: {exc}")
+            except (ReauthRequired, OSError, ValueError) as exc:
+                st.error(f"Login Gmail gagal: {exc}")
+            except Exception:
+                st.error("Login Gmail gagal. Periksa credentials.json dan konfigurasi OAuth.")
+
+    try:
+        if ("graph" not in st.session_state
+                or st.session_state.get("gmail_backend") != backend):
+            if st.session_state.get("gmail_backend") != backend:
+                _reset_batch()
+            st.session_state.graph = _new_graph(backend)
+            st.session_state.gmail_backend = backend
+        graph = st.session_state.graph
+        if backend == "gmail":
+            graph.gmail_client.check_connection()
+    except FatalToolError as exc:
+        st.error(f"Gmail connection failed: {exc}. Gunakan tombol login di sidebar.")
+        return
+    except (OSError, ValueError) as exc:
         st.error(f"Konfigurasi belum siap: {exc}")
         return
     graph: InboxGraph = st.session_state.graph
 
     with st.sidebar:
-        st.caption(f"LLM: **{cfg.llm_backend}** · Gmail: **mock** ({cfg.eval_dataset_path})")
+        if backend == "mock":
+            st.info("Mock Mode")
+            st.caption(f"Dataset mock: {cfg.eval_dataset_path}")
+        else:
+            st.success("Gmail Connected")
         size = st.slider("Ukuran batch", 1, MAX_BATCH, MAX_BATCH)
-        if st.button("Reset inbox palsu"):
-            st.session_state.graph = _new_graph()
+        reset_label = "Reset inbox mock" if backend == "mock" else "Reset batch"
+        if st.button(reset_label):
+            st.session_state.graph = _new_graph(backend)
+            st.session_state.gmail_backend = backend
             _reset_batch()
             st.rerun()
         st.caption("Agen tidak mengirim email dan tidak menghapus apa pun.")

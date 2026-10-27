@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
@@ -24,6 +25,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.config import LOOPBACK_HOSTS, LLMConfig
+
+
+logger = logging.getLogger("gmail_agent.llm.transport")
+logger.setLevel(logging.INFO)
 
 
 class LLMHTTPError(RuntimeError):
@@ -51,6 +56,61 @@ def _opener(url: str) -> urllib.request.OpenerDirector:
     return urllib.request.build_opener(*handlers)
 
 
+def _tool_names(tools: list[dict[str, Any]] | None) -> list[str]:
+    """Return tool names only; never log tool schemas or message content."""
+    names: list[str] = []
+    for tool in tools or []:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        if isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def _forced_tool_name(tool_choice: Any) -> str | None:
+    if not isinstance(tool_choice, dict):
+        return None
+    function = tool_choice.get("function")
+    name = function.get("name") if isinstance(function, dict) else None
+    return name if isinstance(name, str) else None
+
+
+def _gateway_error_kind(detail: str) -> str:
+    """Classify an HTTP error without logging the provider's raw response."""
+    lowered = detail.lower()
+    if "tool_choice" in lowered:
+        return "tool_choice_unsupported"
+    if "tools" in lowered and ("not supported" in lowered or "unsupported" in lowered):
+        return "tools_unsupported"
+    if "model" in lowered and ("not found" in lowered or "does not exist" in lowered):
+        return "model_not_found"
+    if "api key" in lowered or "unauthorized" in lowered or "authentication" in lowered:
+        return "authentication_failed"
+    if "rate limit" in lowered:
+        return "rate_limited"
+    try:
+        payload = json.loads(detail)
+    except json.JSONDecodeError:
+        return "text_error"
+    return "json_error" if isinstance(payload, dict) else "non_object_error"
+
+
+def _response_metadata(response: dict[str, Any]) -> tuple[str | None, bool, list[str]]:
+    """Extract safe response diagnostics without retaining content or arguments."""
+    choices = response.get("choices")
+    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    calls = extract_tool_calls(message)
+    names = []
+    for call in calls:
+        function = call.get("function") if isinstance(call, dict) else None
+        name = function.get("name") if isinstance(function, dict) else None
+        if isinstance(name, str):
+            names.append(name)
+    finish_reason = choice.get("finish_reason")
+    return (finish_reason if isinstance(finish_reason, str) else None, bool(calls), names)
+
+
 def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
              tools: list[dict[str, Any]] | None = None,
              **extra: Any) -> tuple[dict[str, Any], float]:
@@ -61,6 +121,7 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
     payload.update({k: v for k, v in extra.items() if v is not None})
 
     url = cfg.chat_completions_url
+    
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -79,7 +140,16 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         retry_after = exc.headers.get("Retry-After") if exc.headers else None
-        raise LLMHTTPError(exc.code, detail, retry_after) from None
+        error_kind = _gateway_error_kind(detail)
+        logger.warning(
+            "llm HTTP error metadata",
+            extra={
+                "gateway_host": urlparse(url).netloc,
+                "http_status": exc.code,
+                "gateway_error_kind": error_kind,
+            },
+        )
+        raise LLMHTTPError(exc.code, f"gateway_error={error_kind}", retry_after) from None
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, TimeoutError):
             raise LLMHTTPError(None, f"Timeout setelah {cfg.timeout_s:g} detik", timed_out=True) from None
@@ -93,9 +163,34 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
-        raise LLMHTTPError(None, f"Respons bukan JSON: {body[:200]!r}") from None
+        logger.warning(
+            "llm response metadata",
+            extra={
+                "gateway_host": urlparse(url).netloc,
+                "response_format": "non_json",
+            },
+        )
+        raise LLMHTTPError(None, "Respons gateway bukan JSON") from None
     if not isinstance(data, dict):
-        raise LLMHTTPError(None, f"Respons JSON bukan objek: {body[:200]!r}")
+        logger.warning(
+            "llm response metadata",
+            extra={
+                "gateway_host": urlparse(url).netloc,
+                "response_format": "non_object_json",
+            },
+        )
+        raise LLMHTTPError(None, "Respons JSON gateway bukan objek")
+    finish_reason, has_tool_calls, tool_names = _response_metadata(data)
+    logger.info(
+        "llm response metadata",
+        extra={
+            "gateway_host": urlparse(url).netloc,
+            "response_model": data.get("model") if isinstance(data.get("model"), str) else None,
+            "finish_reason": finish_reason,
+            "has_tool_calls": has_tool_calls,
+            "response_tool_names": tool_names,
+        },
+    )
     return data, elapsed
 
 
@@ -103,16 +198,25 @@ def extract_message(response: dict[str, Any]) -> dict[str, Any]:
     """Ambil `choices[0].message` dari respons OpenAI-compatible."""
     choices = response.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise LLMHTTPError(None, f"Format respons tidak dikenal: {json.dumps(response)[:300]}")
+        logger.warning("llm response metadata", extra={"response_format": "missing_choices"})
+        raise LLMHTTPError(None, "Format respons gateway tidak memiliki choices[0]")
     message = choices[0].get("message")
     if not isinstance(message, dict):
+        logger.warning("llm response metadata", extra={"response_format": "missing_message"})
         raise LLMHTTPError(None, "choices[0].message bukan objek")
     return message
 
 
 def extract_tool_calls(message: dict[str, Any]) -> list[dict[str, Any]]:
-    """`tool_calls` sebagai list objek (kosong jika tidak ada atau formatnya salah)."""
+    """Read modern ``tool_calls`` and the legacy OpenAI ``function_call`` shape."""
     calls = message.get("tool_calls")
-    if not isinstance(calls, list):
-        return []
-    return [c for c in calls if isinstance(c, dict)]
+    if isinstance(calls, list):
+        return [c for c in calls if isinstance(c, dict)]
+    legacy = message.get("function_call")
+    if isinstance(legacy, dict):
+        return [{
+            "id": legacy.get("id") or "legacy_function_call",
+            "type": "function",
+            "function": legacy,
+        }]
+    return []

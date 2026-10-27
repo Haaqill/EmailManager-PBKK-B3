@@ -34,9 +34,11 @@ class FakeSend:
     def __init__(self, *items):
         self.items = list(items)
         self.messages = []
+        self.requests = []
 
     def __call__(self, cfg, messages, tools=None, **_):
         self.messages.append(list(messages))
+        self.requests.append({"tools": tools, "tool_choice": _.get("tool_choice")})
         item = self.items.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -49,12 +51,15 @@ def make(*items):
 
 
 def test_arguments_string_diparse_dan_usage():
-    llm, _ = make(resp([call()]))
+    llm, send = make(resp([call()]))
     r = llm.call_llm([{"role": "user", "content": "x"}], TOOLS)
     assert r.tool_calls[0].arguments == {"thread_id": "t1", "body": "Halo"}
     assert r.usage.model == "qwen3:14b-served"
     assert (r.usage.prompt_tokens, r.usage.total_tokens, r.usage.retries) == (10, 15, 0)
     assert (r.usage.api_style, r.usage.tool_mode) == ("openai", "native")
+    assert send.requests[0]["tool_choice"] == {
+        "type": "function", "function": {"name": "submit_draft"}
+    }
 
 
 def test_id_yang_hilang_dibuat_dan_arguments_objek_diterima():
@@ -62,6 +67,21 @@ def test_id_yang_hilang_dibuat_dan_arguments_objek_diterima():
     r = llm.call_llm([], TOOLS)
     assert r.tool_calls[0].id == "call_1"
     assert r.tool_calls[0].arguments == {"body": "x"}
+
+
+def test_legacy_function_call_diparse_sebagai_tool_call():
+    data = resp()
+    data["choices"][0]["finish_reason"] = "function_call"
+    data["choices"][0]["message"] = {
+        "role": "assistant",
+        "content": None,
+        "function_call": {"name": "submit_draft", "arguments": '{"body": "legacy"}'},
+    }
+
+    result = make(data)[0].call_llm([], TOOLS)
+
+    assert result.tool_calls[0].name == "submit_draft"
+    assert result.tool_calls[0].arguments == {"body": "legacy"}
 
 
 def test_teks_biasa_tanpa_tools():
@@ -77,6 +97,24 @@ def test_output_rusak_dikoreksi_sekali_lalu_berhasil():
     assert r.usage.retries == 1
     assert r.usage.total_tokens == 30            # dijumlahkan lintas percobaan
     assert "tidak valid" in send.messages[1][-1]["content"]
+    assert [request["tools"] for request in send.requests] == [TOOLS, TOOLS]
+    assert [request["tool_choice"] for request in send.requests] == [
+        {"type": "function", "function": {"name": "submit_draft"}},
+        {"type": "function", "function": {"name": "submit_draft"}},
+    ]
+
+
+def test_tool_tidak_dipanggil_diulang_dengan_tool_yang_diwajibkan():
+    llm, send = make(resp(content="Saya akan menjawab dalam teks."), resp([call()]))
+
+    result = llm.call_llm([{"role": "user", "content": "x"}], TOOLS)
+
+    assert result.tool_calls[0].name == "submit_draft"
+    assert "tidak ada tool_call" in send.messages[1][-1]["content"]
+    assert [request["tools"] for request in send.requests] == [TOOLS, TOOLS]
+    assert all(request["tool_choice"] == {
+        "type": "function", "function": {"name": "submit_draft"}
+    } for request in send.requests)
 
 
 def test_output_rusak_setelah_dua_koreksi_menjadi_error():
@@ -112,11 +150,32 @@ def test_usage_none_jika_backend_tidak_melapor():
     assert llm.call_llm([], TOOLS).usage.total_tokens is None
 
 
-@pytest.mark.parametrize("field,value", [("llm_tool_mode", "json"), ("llm_api_style", "ollama")])
-def test_mode_selain_native_openai_ditolak(field, value):
-    cfg = Config(**{**CFG.__dict__, field: value})
+def test_mode_ollama_ditolak():
+    cfg = Config(**{**CFG.__dict__, "llm_api_style": "ollama"})
     with pytest.raises(ConfigError):
         CampusLLM(cfg, send=FakeSend())
+
+
+def test_mode_json_diterima():
+    cfg = Config(**{**CFG.__dict__, "llm_tool_mode": "json"})
+    llm = CampusLLM(
+        cfg,
+        send=FakeSend(
+            resp(content='{"thread_id": "t1", "body": "Halo"}')
+        ),
+    )
+
+    result = llm.call_llm(
+        [{"role": "user", "content": "x"}],
+        TOOLS,
+    )
+
+    assert result.tool_calls[0].name == "submit_draft"
+    assert result.tool_calls[0].arguments == {
+        "thread_id": "t1",
+        "body": "Halo",
+    }
+
 
 
 def test_api_key_tidak_bocor_di_pesan_error():

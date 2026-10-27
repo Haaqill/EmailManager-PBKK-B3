@@ -36,3 +36,8 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
+
+#planning
+AGENTS.md
+plan.md
+WORKFLOW_CODEX.md

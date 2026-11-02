@@ -1,25 +1,30 @@
-# EmailManager-PBKK-B3
+# Gmail Inbox Manager
 
-### Setup
-```
-# 1. Clone repo
+Repository ini memuat dua aplikasi yang berbeda, jadi direktori sumbernya sengaja
+dipisahkan:
 
-# 2.
+- **Agen Gmail Python** berada di root (`app/`, `tests/`, `eval/`).
+- **Aplikasi Laravel untuk Tugas 9** berada di [`laravel/`](./laravel/).
+- [`EmailManager-PBKK-B3/`](./EmailManager-PBKK-B3/) adalah salinan/referensi
+  proyek terdahulu; bukan lokasi untuk menjalankan aplikasi Tugas 9.
+
+Jangan pindahkan direktori `laravel/app` ke root: keduanya memiliki folder `app`
+dengan bahasa dan fungsi berbeda.
+
+## Agen Gmail Python
+
+```powershell
 py -3.11 -m venv .venv
-.venv\Scripts\activate
-
-# 3.
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-# 4.
-cp .env.example .env
-
-# 5.
-pytest  # harus hijau
+Copy-Item .env.example .env
+pytest
 ```
 
-### Dataset mock
+`eval/dataset.json` berisi data tiruan untuk pengujian. `MockGmailAPIClient`
+menyimpan perubahan label, arsip, dan draft hanya selama proses berjalan.
 
-`eval/dataset.json` adalah array JSON dengan satu objek `DatasetRow` per thread.
-`MockGmailAPIClient` membaca file ini dan menyimpan perubahan label, arsip, serta
-draft hanya selama proses berjalan.
+## Laravel Tugas 9
+
+Lihat [`laravel/README.md`](./laravel/README.md) untuk instalasi, skema, seeder,
+riwayat, dan tes Laravel. Laravel harus dijalankan dari direktori `laravel/`.

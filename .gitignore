@@ -36,3 +36,10 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Laravel
+laravel/vendor/
+laravel/node_modules/
+laravel/public/build/
+laravel/storage/*.log
+laravel/storage/logs/*.log

@@ -1,0 +1,27 @@
+# Core
+python-dotenv==1.0.1
+pydantic==2.9.2
+
+# LLM
+openai==1.54.4
+tenacity==9.0.0
+
+# LangGraph
+langgraph==0.2.45
+langgraph-checkpoint==2.0.2
+
+# Gmail
+google-api-python-client==2.149.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1
+keyring==25.5.0
+
+# Privacy
+beautifulsoup4==4.12.3
+
+# UI
+streamlit==1.40.1
+
+# Testing
+pytest==8.3.3
+pytest-mock==3.14.0

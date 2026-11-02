@@ -7,10 +7,10 @@ keduanya menggunakan direktori `app/` dengan fungsi dan bahasa berbeda.
 ## Menjalankan aplikasi
 
 Prasyarat: PHP **8.3 atau lebih baru**, Composer 2, Node.js/npm, dan ekstensi
-PHP yang dibutuhkan Laravel (termasuk `pdo_sqlite` bila memakai SQLite).
+PHP yang dibutuhkan Laravel (termasuk `pdo_sqlite` bila memakai SQLite). STRUKTUR: app laravel ada di dalam \laravel di dalam EmailManager-PBKK-B3
 
 ```powershell
-cd "F:\SMT5\PBKK\AgenticAI\gmail-inbox-manager\laravel"
+cd ".\laravel"
 composer install
 Copy-Item .env.example .env
 php artisan key:generate

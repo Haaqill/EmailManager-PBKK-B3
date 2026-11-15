@@ -81,6 +81,7 @@ class ChatAiApiTest extends TestCase
             ->assertJsonPath('data.model_used', 'qwen2.5:1.5b')
             ->assertJsonPath('data.prompt', 'Ringkas email dari dosen.')
             ->assertJsonPath('data.ai_response', 'Ini ringkasannya.');
+        $this->assertStringEndsWith('+07:00', $response->json('data.timestamp'));
 
         $this->assertSame(1, ChatSession::count());
         $session = ChatSession::first();

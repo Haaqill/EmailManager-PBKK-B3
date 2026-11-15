@@ -131,6 +131,9 @@ class CampusLLM:
         self._send = send
         self._max_retries = max_retries
         self._max_corrections = max_corrections
+        # Smoke test memakai tool_choice eksplisit; tanpa itu model bisa membalas teks.
+        # Dimatikan otomatis jika gateway menolaknya (400/404/422).
+        self._force_tool_choice = True
         self._wait = _RateLimitAwareWait(
             wait if wait is not None else wait_random_exponential(multiplier=1, max=20)
         )
@@ -197,7 +200,7 @@ class CampusLLM:
                     attempts += 1
                     started = time.perf_counter()
                     try:
-                        data, _ = self._send(self._endpoint, messages, tools=tools)
+                        data = self._send_once(messages, tools)
                     except LLMHTTPError as exc:
                         history.append(_attempt_label(exc))
                         raise
@@ -222,6 +225,26 @@ class CampusLLM:
                 totals[key] = (totals[key] or 0) + value
         return data
 
+    def _tool_choice(self, tools: list[dict] | None) -> dict | None:
+        """Paksa fungsi bernama jika hanya ada satu tool (kasus classify/draft)."""
+        if not tools or len(tools) != 1 or not self._force_tool_choice:
+            return None
+        name = (tools[0].get("function") or {}).get("name")
+        return {"type": "function", "function": {"name": name}} if name else None
+
+    def _send_once(self, messages: list[dict], tools: list[dict] | None) -> dict:
+        choice = self._tool_choice(tools)
+        if choice is not None:
+            try:
+                data, _ = self._send(self._endpoint, messages, tools=tools, tool_choice=choice)
+                return data
+            except LLMHTTPError as exc:
+                if exc.status not in (400, 404, 422):
+                    raise
+                self._force_tool_choice = False   # gateway menolak tool_choice bernama
+        data, _ = self._send(self._endpoint, messages, tools=tools)
+        return data
+
     def _parse(self, message: dict, tools: list[dict] | None) -> tuple[str | None, list[ToolCall]]:
         calls: list[ToolCall] = []
         for i, raw in enumerate(extract_tool_calls(message), start=1):
@@ -239,8 +262,48 @@ class CampusLLM:
                 raise _BrokenOutput(f"arguments {name} bukan objek JSON")
             calls.append(ToolCall(id=raw.get("id") or f"call_{i}", name=name, arguments=args))
         if tools and not calls:
-            raise _BrokenOutput("tidak ada tool_call, padahal tool wajib dipanggil")
+            salvaged = _salvage_call(message.get("content"), tools)
+            if salvaged is None:
+                raise _BrokenOutput("tidak ada tool_call, padahal tool wajib dipanggil")
+            calls.append(salvaged)
         return message.get("content"), calls
+
+
+def _salvage_call(content: str | None, tools: list[dict]) -> ToolCall | None:
+    """Model yang menulis tool call sebagai TEKS di `content` (umum di qwen/vLLM tanpa parser).
+
+    Hanya dipakai jika tepat satu tool diberikan. Bentuk yang diterima:
+    - objek argumen langsung: {"category": ...}
+    - pembungkus: {"name": "...", "arguments": {...}} (juga di dalam <tool_call>...</tool_call>)
+    Validasi isi tetap dilakukan Pydantic di graph (extra=forbid), jadi salah tebak tidak lolos.
+    """
+    if not content or len(tools) != 1:
+        return None
+    tool_name = (tools[0].get("function") or {}).get("name")
+    if not tool_name:
+        return None
+    text = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    tagged = re.search(r"<tool_call>\s*(\{.*\})\s*</tool_call>", text, re.DOTALL)
+    candidate = (fenced or tagged).group(1) if (fenced or tagged) else text
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        obj = json.loads(candidate[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    if isinstance(obj.get("arguments"), (dict, str)) and "name" in obj:
+        args = obj["arguments"]
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                return None
+        obj = args
+    return ToolCall(id="call_salvaged", name=tool_name, arguments=obj) if isinstance(obj, dict) else None
 
 
 class _BrokenOutput(Exception):

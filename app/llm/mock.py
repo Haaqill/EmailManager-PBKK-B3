@@ -236,6 +236,7 @@ class DatasetLLM:
     def __init__(self, dataset_path: str) -> None:
         from app.gmail.mock_client import load_dataset
 
+        self.dataset_path = dataset_path
         self.rows = {r.id: r for r in load_dataset(dataset_path)}
         self.calls: list[dict] = []
 
@@ -247,8 +248,17 @@ class DatasetLLM:
         match = re.search(r"^thread_id: (\S+)$", user, re.MULTILINE)
         subject = re.search(r"^Subjek: (.*)$", user, re.MULTILINE)
         tool = (tools or [{}])[0].get("function", {}).get("name")
-        if not match or match.group(1) not in self.rows or tool is None:
-            return make_text_response("Tidak ada data untuk thread ini.")
+        if tool is None:
+            return make_text_response("Tidak ada tool yang diminta.")
+        if not match or match.group(1) not in self.rows:
+            # Dulu: teks biasa tanpa tool_call -> graph melaporkan "tool ... tidak dipanggil"
+            # (menyesatkan). Sekarang: error yang menyebut akar masalahnya.
+            tid = match.group(1) if match else "?"
+            raise LLMOutputError(
+                f"DatasetLLM (LLM_BACKEND=mock) hanya mengenal thread di {self.dataset_path} "
+                f"({', '.join(sorted(self.rows))}); thread {tid!r} tidak ada. "
+                "Untuk Gmail asli set LLM_BACKEND=campus."
+            )
         row = self.rows[match.group(1)]
         prompt_chars = _total_chars(messages)
 

@@ -43,3 +43,7 @@ laravel/node_modules/
 laravel/public/build/
 laravel/storage/*.log
 laravel/storage/logs/*.log
+#planning
+AGENTS.md
+plan.md
+WORKFLOW_CODEX.md

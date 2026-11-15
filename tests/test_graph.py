@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
 from app.agent import dispatcher as d
 from app.agent.graph import InboxGraph
 from app.contracts import LLMUnavailableError, PlanItem, ReviewDecision
-from app.llm.mock import MockLLM, make_tool_response
+from app.llm.mock import MockLLM, make_text_response, make_tool_response
 from tests.test_gmail_tools import MockGmail
 
 # (id, kategori, prioritas, aksi, perlu_balas)
@@ -137,6 +138,25 @@ def test_klasifikasi_tidak_valid_dikoreksi(gmail):
     assert len(plan) == 10
     koreksi = llm.calls[1]["messages"]
     assert koreksi[-1]["role"] == "tool" and "tidak valid" in koreksi[-1]["content"]
+
+
+def test_klasifikasi_tanpa_tool_diulang_dengan_tool_yang_sama(gmail, caplog):
+    caplog.set_level(logging.WARNING, logger="gmail_agent.graph")
+    items = [make_text_response("Saya akan menganalisis email ini terlebih dahulu.")]
+    items += [classification("t01", "Tugas", "Mendesak", "keep", False)]
+    items += [classification(*t[:4], False) for t in THREADS[1:]]
+    llm = MockLLM(items)
+
+    plan = InboxGraph(llm, gmail).start("b6-no-tool")
+
+    assert len(plan) == 10
+    assert [call["tools"][0]["function"]["name"] for call in llm.calls[:2]] == [
+        "submit_classification", "submit_classification"
+    ]
+    assert "tool submit_classification tidak dipanggil" in llm.calls[1]["messages"][-1]["content"]
+    record = next(r for r in caplog.records if r.message == "LLM tidak memanggil tool keluaran yang diwajibkan")
+    assert record.expected_tool == "submit_classification"
+    assert record.response_tool_names == []
 
 
 def test_klasifikasi_tetap_rusak_dilewati_batch_lanjut(gmail):

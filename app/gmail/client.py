@@ -38,7 +38,8 @@ class GmailAPIClient:
     """Implementasi GmailClient yang memakai kredensial OAuth dari keyring."""
 
     def __init__(
-        self, config: Any | None = None, *, service: Any | None = None
+        self, config: Any | None = None, *, service: Any | None = None,
+        interactive: bool = True,
     ) -> None:
         del config
         if service is not None:
@@ -46,12 +47,26 @@ class GmailAPIClient:
             return
 
         try:
-            credentials = get_credentials()
+            credentials = get_credentials(interactive=interactive)
         except ReauthRequired as exc:
             raise FatalToolError(str(exc)) from exc
-        self._service = build(
-            "gmail", "v1", credentials=credentials, cache_discovery=False
-        )
+        try:
+            self._service = build(
+                "gmail", "v1", credentials=credentials, cache_discovery=False
+            )
+        except Exception:
+            raise FatalToolError(
+                "Gmail API client gagal disiapkan. Periksa koneksi dan instalasi dependency."
+            ) from None
+
+    def check_connection(self) -> None:
+        """Verify the authorized account can reach Gmail without returning PII."""
+        try:
+            self._execute(self._service.users().getProfile(userId="me"))
+        except Exception:
+            raise FatalToolError(
+                "Koneksi Gmail gagal. Periksa izin OAuth, koneksi jaringan, dan status akun."
+            ) from None
 
     def list_threads(
         self,

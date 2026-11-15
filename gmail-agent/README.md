@@ -10,9 +10,11 @@ hanya berjalan bila perintah dijalankan dari dalam `gmail-agent/`.
 
 ## Menjalankan agen
 
+Prasyarat: Python **3.13** (semua anggota memakai versi yang sama).
+
 ```powershell
 cd gmail-agent
-py -3.11 -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env

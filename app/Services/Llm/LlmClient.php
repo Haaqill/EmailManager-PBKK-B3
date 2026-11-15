@@ -4,6 +4,7 @@ namespace App\Services\Llm;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -35,81 +36,131 @@ class LlmClient
      */
     public function chat(array $messages): LlmResult
     {
-        foreach ($this->config['providers'] ?? [] as $provider) {
-            $result = $this->attempt((string) $provider, $messages);
-            if ($result !== null) {
-                return $result;
+        foreach ($this->providers() as $provider) {
+            $started = hrtime(true);
+            $response = $this->send($provider, $messages, stream: false);
+            if ($response === null) {
+                continue;
             }
+            $latencyMs = (int) round((hrtime(true) - $started) / 1_000_000);
+
+            $content = $response->json('choices.0.message.content');
+            if (! is_string($content) || trim($content) === '') {
+                $this->warn($provider, 'respons_tanpa_jawaban', $response->status());
+
+                continue;
+            }
+
+            $model = $response->json('model');
+            $promptTokens = $response->json('usage.prompt_tokens');
+            $completionTokens = $response->json('usage.completion_tokens');
+
+            return new LlmResult(
+                content: $content,
+                model: is_string($model) && $model !== '' ? $model : $this->configModel($provider),
+                provider: $provider,
+                promptTokens: is_int($promptTokens) ? $promptTokens : null,
+                completionTokens: is_int($completionTokens) ? $completionTokens : null,
+                latencyMs: $latencyMs,
+            );
         }
 
         throw new LlmUnavailableException('Semua provider LLM gagal.');
     }
 
     /**
+     * Buka stream ke provider pertama yang menjawab 2xx. Fallback hanya terjadi
+     * sebelum token pertama; kegagalan di tengah stream ditangani LlmStream.
+     *
      * @param  list<array{role: string, content: string}>  $messages
      */
-    private function attempt(string $provider, array $messages): ?LlmResult
+    public function stream(array $messages): LlmStream
+    {
+        foreach ($this->providers() as $provider) {
+            $started = hrtime(true);
+            $response = $this->send($provider, $messages, stream: true);
+            if ($response === null) {
+                continue;
+            }
+
+            return new LlmStream(
+                body: $response->toPsrResponse()->getBody(),
+                provider: $provider,
+                configModel: $this->configModel($provider),
+                startedAt: $started,
+            );
+        }
+
+        throw new LlmUnavailableException('Semua provider LLM gagal.');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function providers(): array
+    {
+        return array_map('strval', $this->config['providers'] ?? []);
+    }
+
+    private function configModel(string $provider): string
+    {
+        return (string) ($this->config[$provider]['model'] ?? '');
+    }
+
+    /**
+     * Kirim permintaan ke satu provider. Null bila provider gagal (sudah dicatat).
+     *
+     * @param  list<array{role: string, content: string}>  $messages
+     */
+    private function send(string $provider, array $messages, bool $stream): ?Response
     {
         $settings = $this->config[$provider] ?? null;
         $baseUrl = is_array($settings) ? rtrim((string) ($settings['base_url'] ?? ''), '/') : '';
         if ($baseUrl === '') {
-            $this->warn($provider, null, 'base_url_kosong');
+            $this->warn($provider, 'base_url_kosong');
 
             return null;
         }
 
-        $configModel = (string) ($settings['model'] ?? '');
-        $apiKey = (string) ($settings['api_key'] ?? '');
         $url = $baseUrl . '/chat/completions';
+        $apiKey = (string) ($settings['api_key'] ?? '');
 
         $request = $this->http->acceptJson()->timeout((int) ($this->config['timeout'] ?? 60));
         if ($apiKey !== '') {
             $request = $request->withToken($apiKey);
         }
+        if ($stream) {
+            $request = $request->withOptions(['stream' => true]);
+        }
 
-        $started = hrtime(true);
+        $payload = [
+            'model' => $this->configModel($provider),
+            'messages' => $messages,
+            'max_tokens' => (int) ($this->config['max_tokens'] ?? 512),
+            'stream' => $stream,
+        ];
+        if ($stream) {
+            $payload['stream_options'] = ['include_usage' => true];
+        }
+
         try {
-            $response = $request->post($url, [
-                'model' => $configModel,
-                'messages' => $messages,
-                'max_tokens' => (int) ($this->config['max_tokens'] ?? 512),
-                'stream' => false,
-            ]);
+            $response = $request->post($url, $payload);
         } catch (ConnectionException) {
-            $this->warn($provider, $url, 'koneksi_gagal');
+            $this->warn($provider, 'koneksi_gagal', null, $url);
 
             return null;
         }
-        $latencyMs = (int) round((hrtime(true) - $started) / 1_000_000);
 
         if (! $response->successful()) {
-            $this->warn($provider, $url, 'http_error', $response->status());
+            $this->warn($provider, 'http_error', $response->status(), $url);
 
             return null;
         }
 
-        $content = $response->json('choices.0.message.content');
-        if (! is_string($content) || trim($content) === '') {
-            $this->warn($provider, $url, 'respons_tanpa_jawaban', $response->status());
-
-            return null;
-        }
-
-        $model = $response->json('model');
-        $promptTokens = $response->json('usage.prompt_tokens');
-        $completionTokens = $response->json('usage.completion_tokens');
-
-        return new LlmResult(
-            content: $content,
-            model: is_string($model) && $model !== '' ? $model : $configModel,
-            provider: $provider,
-            promptTokens: is_int($promptTokens) ? $promptTokens : null,
-            completionTokens: is_int($completionTokens) ? $completionTokens : null,
-            latencyMs: $latencyMs,
-        );
+        return $response;
     }
 
-    private function warn(string $provider, ?string $url, string $reason, ?int $status = null): void
+    private function warn(string $provider, string $reason, ?int $status = null, ?string $url = null): void
     {
         Log::warning('Provider LLM gagal, mencoba provider berikutnya', [
             'provider' => $provider,

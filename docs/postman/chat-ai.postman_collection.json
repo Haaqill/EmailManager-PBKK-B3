@@ -4,8 +4,14 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://127.0.0.1:8000" },
-    { "key": "token", "value": "" }
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
   ],
   "item": [
     {
@@ -14,11 +20,23 @@
         "method": "POST",
         "auth": {
           "type": "bearer",
-          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
         },
         "header": [
-          { "key": "Accept", "value": "application/json" },
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -31,16 +49,55 @@
       "name": "Chat AI - tanpa token (401)",
       "request": {
         "method": "POST",
-        "auth": { "type": "noauth" },
+        "auth": {
+          "type": "noauth"
+        },
         "header": [
-          { "key": "Accept", "value": "application/json" },
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"prompt\": \"Halo\"\n}"
         },
         "url": "{{base_url}}/api/chat-ai"
+      }
+    },
+    {
+      "name": "Chat AI - stream (SSE)",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"prompt\": \"Sebutkan 3 hal yang bisa kamu bantu untuk inbox Gmail.\"\n}"
+        },
+        "url": "{{base_url}}/api/chat-ai/stream"
       }
     }
   ]

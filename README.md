@@ -204,6 +204,40 @@ konteks.
 | 429 | Lebih dari 10 request/menit (header `Retry-After`) | `{"message": "Too Many Attempts."}` |
 | 503 | Semua provider LLM gagal; tidak ada pesan yang disimpan | `{"status": "error", "message": "Layanan LLM sedang tidak tersedia."}` |
 
+### Streaming (challenge): `POST /api/chat-ai/stream`
+
+Header, body, rate limit, dan validasi sama dengan `/api/chat-ai`. Jawaban
+dikirim bertahap sebagai Server-Sent Events (`Content-Type: text/event-stream`):
+
+```text
+event: delta
+data: {"content":"1. Merangkum"}
+
+event: delta
+data: {"content":" isi email"}
+
+event: done
+data: {"status":"success","data":{"session_id":7,"model_used":"qwen3:14b","prompt":"...","ai_response":"1. Merangkum isi email ...","timestamp":"2026-11-16T06:43:38+07:00"}}
+```
+
+- `delta`: potongan jawaban; gabungkan `content` sesuai urutan.
+- `done`: dikirim sekali di akhir, isinya sama dengan respons 200 `/api/chat-ai`.
+  Pesan baru disimpan ke database pada saat ini.
+- `error`: `{"status":"error","message":"Layanan LLM terputus saat menjawab."}`
+  bila stream putus di tengah; tidak ada pesan yang disimpan.
+
+Error sebelum stream dimulai (401, 422, 404, 429, 503) tetap dikirim sebagai
+JSON biasa dengan bentuk seperti tabel di atas. Fallback provider hanya terjadi
+sebelum token pertama dikirim.
+
+Contoh dengan curl (`-N` mematikan buffering):
+
+```powershell
+curl.exe -N -X POST http://127.0.0.1:8000/api/chat-ai/stream `
+  -H "Authorization: Bearer <token>" -H "Accept: application/json" `
+  -H "Content-Type: application/json" --data-binary "@body.json"
+```
+
 ### Log di database
 
 Setiap request sukses membuat (atau memakai) satu `chat_sessions` milik user dan

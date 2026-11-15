@@ -26,7 +26,7 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
-# Agen Python
+# Agen Python (aturan lengkap ada di gmail-agent/.gitignore)
 __pycache__/
 *.py[cod]
 .venv/

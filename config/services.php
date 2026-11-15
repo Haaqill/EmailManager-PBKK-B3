@@ -35,4 +35,23 @@ return [
         ],
     ],
 
+    'llm' => [
+        'providers' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('LLM_PROVIDERS', 'senopati,ollama'))
+        ))),
+        'ollama' => [
+            'base_url' => env('LLM_OLLAMA_URL', 'http://127.0.0.1:11434/v1'),
+            'model' => env('LLM_OLLAMA_MODEL', 'qwen2.5:1.5b'),
+            'api_key' => '',
+        ],
+        'senopati' => [
+            'base_url' => env('LLM_SENOPATI_URL'),
+            'model' => env('LLM_SENOPATI_MODEL'),
+            'api_key' => env('LLM_SENOPATI_KEY'),
+        ],
+        'timeout' => (int) env('LLM_TIMEOUT', 60),
+        'max_tokens' => (int) env('LLM_MAX_TOKENS', 512),
+    ],
+
 ];

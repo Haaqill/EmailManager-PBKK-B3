@@ -1,16 +1,28 @@
-# Gmail Inbox Manager — Laravel Tugas 9
+# Gmail Inbox Manager
 
-Lapisan data Laravel untuk menyimpan sesi dan pesan agen Gmail, rencana batch,
-serta catatan eksekusi tool. Aplikasi Python dan Laravel tetap terpisah karena
-keduanya menggunakan direktori `app/` dengan fungsi dan bahasa berbeda.
+Aplikasi Laravel untuk mengelola inbox Gmail dengan bantuan agen AI. Laravel
+memegang login, UI, database, riwayat, dan log; agen Python (redaksi PII, LLM
+kampus, workflow LangGraph, tool Gmail) berada di folder `gmail-agent/`.
+
+## Struktur repo
+
+```
+/               proyek Laravel (app/, routes/, database/, resources/, tests/, ...)
+gmail-agent/    agen Python: app/, eval/, tests/, requirements.txt
+docs/           ERD dan screenshot
+```
+
+Folder `app/` di root adalah kode Laravel (namespace `App\`). Kode Python ada di
+`gmail-agent/app/`; panduan menjalankannya ada di
+[`gmail-agent/README.md`](./gmail-agent/README.md).
 
 ## Menjalankan aplikasi
 
 Prasyarat: PHP **8.3 atau lebih baru**, Composer 2, Node.js/npm, dan ekstensi
-PHP yang dibutuhkan Laravel (termasuk `pdo_sqlite` bila memakai SQLite). STRUKTUR: app laravel ada di dalam \laravel di dalam EmailManager-PBKK-B3
+PHP yang dibutuhkan Laravel (termasuk `pdo_sqlite` bila memakai SQLite).
+Semua perintah dijalankan dari root repo.
 
 ```powershell
-cd ".\laravel"
 composer install
 Copy-Item .env.example .env
 php artisan key:generate
@@ -101,7 +113,7 @@ Untuk bukti, login dengan akun demo lalu buka detail sesi batch yang berisi 10
 item. Buka panel Debugbar bagian **Queries** dan ambil screenshot yang
 memperlihatkan halaman batch serta query eager loading untuk sesi, pesan, log
 pesan, item batch, dan log item (5 query data agen; query auth/session tidak
-dihitung). Simpan screenshot sebagai `docs/debugbar-n1.png`.
+dihitung). Screenshot tersimpan di `docs/debugbar-n1.png`.
 
 ## Pemetaan keluaran agen Python
 
@@ -115,6 +127,8 @@ dihitung). Simpan screenshot sebagai `docs/debugbar-n1.png`.
 
 Tabel Laravel adalah kontrak data saja; integrasi runtime dengan agen Python
 belum termasuk tugas ini.
+
+## Anggota kelompok
 
 | Nama | NRP |
 |---|---|

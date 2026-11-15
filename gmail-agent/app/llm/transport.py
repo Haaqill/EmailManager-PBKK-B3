@@ -121,7 +121,28 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
     payload.update({k: v for k, v in extra.items() if v is not None})
 
     url = cfg.chat_completions_url
-    
+    tool_choice = extra.get("tool_choice")
+    forced_tool = None
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function")
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            forced_tool = function["name"]
+    tool_names = [
+        tool["function"]["name"]
+        for tool in tools or []
+        if isinstance(tool, dict)
+        and isinstance(tool.get("function"), dict)
+        and isinstance(tool["function"].get("name"), str)
+    ]
+    logger.info(
+        "llm request metadata",
+        extra={
+            "gateway_host": urlparse(url).netloc,
+            "message_count": len(messages),
+            "tool_names": tool_names,
+            "forced_tool": forced_tool,
+        },
+    )
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

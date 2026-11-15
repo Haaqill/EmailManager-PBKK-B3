@@ -1,8 +1,9 @@
 """CampusLLM — LLMClient untuk gateway LLM kampus (kontrak 1, A).
 
 - Endpoint OpenAI-compatible lewat app/llm/transport.py.
-- Tool calling native saja: smoke test (19 Okt) membuktikan native berfungsi,
-  jadi mode json dan adapter ollama tidak diperlukan.
+- LLM_API_STYLE harus openai. LLM_TOOL_MODE=native atau json; mode json tetap
+  mengirim `tools` ke gateway, dan tool call yang ditulis model sebagai teks di
+  `content` ditangkap oleh _salvage_call.
 - Server mati (jaringan, 429, 5xx): retry maks 3 dengan jitter, lalu
   LLMUnavailableError. Status 4xx lain langsung LLMUnavailableError.
 - 429 (rate limit): jeda retry mengikuti header Retry-After atau "Limit resets at"
@@ -118,11 +119,8 @@ class CampusLLM:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         cfg = config or get_config()
-        if cfg.llm_tool_mode != "native" or cfg.llm_api_style != "openai":
-            raise ConfigError(
-                "CampusLLM hanya mendukung LLM_API_STYLE=openai dan LLM_TOOL_MODE=native "
-                "(hasil smoke test: tool calling native berfungsi)."
-            )
+        if cfg.llm_api_style != "openai":
+            raise ConfigError("CampusLLM hanya mendukung LLM_API_STYLE=openai.")
         self._config = cfg
         self._endpoint = LLMConfig(
             base_url=cfg.llm_base_url, api_key=cfg.llm_api_key, model=cfg.llm_model,
@@ -177,7 +175,7 @@ class CampusLLM:
                     latency_ms=totals["latency_ms"],
                     model=model,
                     api_style="openai",
-                    tool_mode="native",
+                    tool_mode=self._config.llm_tool_mode,
                     retries=totals["retries"],
                 ),
             )

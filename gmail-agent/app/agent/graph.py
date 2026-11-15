@@ -12,6 +12,7 @@ fetch → classify → draft → build_plan → [berhenti] → review → execut
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -47,6 +48,8 @@ READ_TOOLS = {"scan_emails", "fetch_thread"}
 WRITE_TOOLS = {"label_thread", "archive_thread", "create_draft_reply"}
 MAX_BATCH = 10
 MAX_CORRECTIONS = 2
+
+logger = logging.getLogger("gmail_agent.graph")
 
 
 class InboxGraph:
@@ -259,6 +262,16 @@ class InboxGraph:
                 return None
             call = next((c for c in resp.tool_calls if _same_tool(c.name, name)), None)
             if call is None:
+                logger.warning(
+                    "LLM tidak memanggil tool keluaran yang diwajibkan",
+                    extra={
+                        "thread_id": tid,
+                        "stage": stage,
+                        "attempt": attempt,
+                        "expected_tool": name,
+                        "response_tool_names": [c.name for c in resp.tool_calls],
+                    },
+                )
                 problem = _not_called_message(name, resp)
                 messages += [{"role": "assistant", "content": resp.content or ""},
                              {"role": "user", "content": f"{problem}. Panggil {name}."}]

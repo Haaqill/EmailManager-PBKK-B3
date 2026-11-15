@@ -18,23 +18,6 @@ from app.gmail.schemas import (
 )
 from pydantic import ValidationError
 
-import json
-from datetime import datetime, timedelta, timezone
-from email.utils import getaddresses
-from pathlib import Path
-
-from app.contracts import DatasetRow
-from app.gmail.schemas import (
-    GmailArchiveResult,
-    GmailAttachment,
-    GmailDraftResult,
-    GmailLabelResult,
-    GmailMessage,
-    GmailThread,
-    GmailThreadSummary,
-)
-from pydantic import ValidationError
-
 
 def load_dataset(dataset_path: str | Path) -> list[DatasetRow]:
     """Baca array DatasetRow dari JSON dan validasi tiap baris.
@@ -77,8 +60,25 @@ def load_dataset(dataset_path: str | Path) -> list[DatasetRow]:
 class MockGmailAPIClient:
     """Klien Gmail palsu yang membaca array DatasetRow dari JSON."""
 
-    def __init__(self, dataset_path: str | Path = "eval/dataset.json") -> None:
+    def __init__(
+        self,
+        dataset_path: str | Path = "eval/dataset.json",
+        *,
+        now: datetime | None = None,
+    ) -> None:
         self._threads: dict[str, DatasetRow] = {row.id: row for row in load_dataset(dataset_path)}
+        if now is None:
+            # Patokan waktu = pesan terbaru di dataset, agar filter newer_than_days
+            # tidak bergantung pada jam asli (dataset bertanggal tetap).
+            dates = [
+                _parse_date(message.date)
+                for row in self._threads.values()
+                for message in row.messages
+            ]
+            now = max(dates) if dates else datetime.now(timezone.utc)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        self._now: datetime = now
         self.drafts: list[dict[str, str]] = []
 
     def list_threads(
@@ -90,7 +90,7 @@ class MockGmailAPIClient:
         sender_domain: str,
         max_results: int,
     ) -> list[GmailThreadSummary]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=newer_than_days)
+        cutoff = self._now - timedelta(days=newer_than_days)
         hasil: list[GmailThreadSummary] = []
 
         for row in self._threads.values():

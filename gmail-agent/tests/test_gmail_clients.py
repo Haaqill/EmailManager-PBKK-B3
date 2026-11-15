@@ -241,6 +241,51 @@ def test_mock_client_filters_and_caps_results(tmp_path):
     assert len(results) == 1
 
 
+def _dated_row(thread_id: str, date: str) -> dict:
+    row = _dataset_row(thread_id)
+    row["messages"][0]["date"] = date
+    return row
+
+
+def test_mock_client_cutoff_uses_latest_dataset_date_not_wall_clock(tmp_path):
+    dataset = tmp_path / "dataset.json"
+    dataset.write_text(
+        json.dumps([
+            _dated_row("t_baru", "2026-10-19T09:00:00+07:00"),
+            _dated_row("t_lama", "2026-10-09T09:00:00+07:00"),
+        ]),
+        encoding="utf-8",
+    )
+    client = MockGmailAPIClient(dataset)
+
+    results = client.list_threads(
+        unread_only=False,
+        newer_than_days=7,
+        in_inbox=True,
+        sender_domain="",
+        max_results=10,
+    )
+    assert [summary.thread_id for summary in results] == ["t_baru"]
+
+
+def test_mock_client_explicit_now_after_dataset_returns_empty(tmp_path):
+    dataset = tmp_path / "dataset.json"
+    dataset.write_text(
+        json.dumps([_dated_row("t_baru", "2026-10-19T09:00:00+07:00")]),
+        encoding="utf-8",
+    )
+    client = MockGmailAPIClient(dataset, now=datetime(2026, 11, 18, 9, 0))
+
+    results = client.list_threads(
+        unread_only=False,
+        newer_than_days=7,
+        in_inbox=True,
+        sender_domain="",
+        max_results=10,
+    )
+    assert results == []
+
+
 def test_mock_client_mutates_labels_archive_and_draft(tmp_path):
     dataset = tmp_path / "dataset.json"
     dataset.write_text(json.dumps([_dataset_row()]), encoding="utf-8")

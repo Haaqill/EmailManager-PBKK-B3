@@ -16,7 +16,20 @@ class ChatMessage extends Model
         'role',
         'content',
         'tool_call_id',
+        'model',
+        'prompt_tokens',
+        'completion_tokens',
+        'latency_ms',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'prompt_tokens' => 'integer',
+            'completion_tokens' => 'integer',
+            'latency_ms' => 'integer',
+        ];
+    }
 
     protected static function booted(): void
     {

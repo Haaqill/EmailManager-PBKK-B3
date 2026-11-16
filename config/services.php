@@ -51,7 +51,7 @@ return [
             'api_key' => env('LLM_SENOPATI_KEY'),
         ],
         'timeout' => (int) env('LLM_TIMEOUT', 60),
-        'max_tokens' => (int) env('LLM_MAX_TOKENS', 512),
+        'max_tokens' => (int) env('LLM_MAX_TOKENS', 1024),
     ],
 
 ];

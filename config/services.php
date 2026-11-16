@@ -42,7 +42,7 @@ return [
         ))),
         'ollama' => [
             'base_url' => env('LLM_OLLAMA_URL', 'http://127.0.0.1:11434/v1'),
-            'model' => env('LLM_OLLAMA_MODEL', 'qwen2.5:1.5b'),
+            'model' => env('LLM_OLLAMA_MODEL', 'qwen3:4b'),
             'api_key' => '',
         ],
         'senopati' => [

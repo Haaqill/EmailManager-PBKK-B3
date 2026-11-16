@@ -17,6 +17,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
+    Route::view('/chat', 'chat')->name('chat');
     Route::get('/riwayat', [ChatHistoryController::class, 'index'])->name('riwayat.index');
     Route::get('/riwayat/{chatSession}', [ChatHistoryController::class, 'show'])->name('riwayat.show');
 });

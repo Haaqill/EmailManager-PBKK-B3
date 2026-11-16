@@ -2,6 +2,7 @@
 
 namespace App\Services\Llm;
 
+use Closure;
 use Generator;
 use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\StreamInterface;
@@ -35,12 +36,16 @@ class LlmStream
     }
 
     /**
+     * @param  (Closure(bool): void)|null  $onReasoning  dipanggil true saat model mulai
+     *                                                   "berpikir" (reasoning_content/reasoning) dan false saat jawaban mulai
      * @return Generator<int, string>
      *
      * @throws LlmUnavailableException bila stream terputus atau tanpa jawaban
      */
-    public function deltas(): Generator
+    public function deltas(?Closure $onReasoning = null): Generator
     {
+        $thinking = false;
+
         try {
             while (! $this->body->eof()) {
                 $line = trim(Utils::readLine($this->body));
@@ -60,8 +65,20 @@ class LlmStream
 
                 $this->absorbMetadata($chunk);
 
-                $delta = $chunk['choices'][0]['delta']['content'] ?? null;
+                $choiceDelta = $chunk['choices'][0]['delta'] ?? [];
+                $reasoning = $choiceDelta['reasoning_content'] ?? $choiceDelta['reasoning'] ?? null;
+                if (! $thinking && is_string($reasoning) && $reasoning !== '') {
+                    $thinking = true;
+                    $onReasoning?->__invoke(true);
+                }
+
+                $delta = $choiceDelta['content'] ?? null;
                 if (is_string($delta) && $delta !== '') {
+                    if ($thinking) {
+                        $thinking = false;
+                        $onReasoning?->__invoke(false);
+                    }
+
                     $this->content .= $delta;
 
                     yield $delta;

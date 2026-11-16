@@ -16,6 +16,10 @@
                         {{ __('Dashboard') }}
                     </x-nav-link>
 
+                    <x-nav-link :href="route('chat')" :active="request()->routeIs('chat')">
+                        {{ __('Chat') }}
+                    </x-nav-link>
+
                     <x-nav-link :href="route('riwayat.index')" :active="request()->routeIs('riwayat.*')">
                         {{ __('Riwayat') }}
                     </x-nav-link>
@@ -98,6 +102,10 @@
                         {{ __('Log Out') }}
                     </x-responsive-nav-link>
                 </form>
+
+                <x-responsive-nav-link :href="route('chat')" :active="request()->routeIs('chat')">
+                    {{ __('Chat') }}
+                </x-responsive-nav-link>
 
                 <x-responsive-nav-link :href="route('riwayat.index')" :active="request()->routeIs('riwayat.*')">
                     {{ __('Riwayat') }}

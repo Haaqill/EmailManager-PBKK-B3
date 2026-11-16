@@ -144,7 +144,7 @@ LLM_SENOPATI_KEY=          # jangan di-commit
 LLM_OLLAMA_URL=http://127.0.0.1:11434/v1
 LLM_OLLAMA_MODEL=qwen3:4b
 LLM_TIMEOUT=60
-LLM_MAX_TOKENS=512
+LLM_MAX_TOKENS=1024
 ```
 
 Ollama opsional: bila tidak berjalan, permintaan langsung diteruskan ke provider

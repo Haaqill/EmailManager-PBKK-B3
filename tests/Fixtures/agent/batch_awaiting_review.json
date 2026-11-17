@@ -28,6 +28,7 @@
                 "category": "akademik",
                 "priority": "mendesak",
                 "action": "draft_reply",
+                "also_archive": true,
                 "reason": "Dosen Fiktif meminta konfirmasi jadwal sebelum Jumat.",
                 "confidence": 0.82,
                 "draft": {
@@ -56,6 +57,7 @@
                 "category": "spam",
                 "priority": "nanti",
                 "action": "trash",
+                "also_archive": false,
                 "reason": "Penipuan berkedok undian.",
                 "confidence": null,
                 "draft": null,

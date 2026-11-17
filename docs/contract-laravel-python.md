@@ -34,6 +34,7 @@ Laravel adalah `app.privacy.contract.PlanItem`. Field yang ditambahkan:
 | `draft.to` / `draft.subject` | `string` | header thread (Reply-To atau From pesan yang dibalas; `Re: <subjek>`) | Prompt persetujuan Fase 2 menampilkan penerima sebenarnya; UI harus menampilkan hal yang sama karena pengguna menyetujui draft untuk penerima itu. Berasal dari header thread, bukan dari LLM. |
 | `warnings[]` | `{code, message}[]` | builder | Peringatan wajib Fase 2 dibuat terstruktur supaya UI bisa menonjolkannya tanpa mengurai teks. Ditambah `UNRESOLVED_PLACEHOLDER` untuk placeholder yang gagal dipulihkan. |
 | `requires_confirmation` | `boolean` | builder: `action == "trash"` | Trash berisiko tinggi dan wajib konfirmasi per item; ditentukan di Python agar tidak bergantung pada UI. |
+| `also_archive` | `boolean` (default `false`) | builder: item `archive` yang punya draf | Plan lama bisa berisi arsip dan draf sekaligus, sedangkan `action` hanya satu nilai; tanpa field ini niat arsip hilang dan pengguna tidak melihat seluruh aksi yang ia setujui. Hanya boleh `true` bila `action == "draft_reply"`. |
 | `plan_version` (level batch) | `integer` ≥ 1 | agen | Mencegah persetujuan dari tampilan yang sudah usang. |
 
 Catatan pemetaan nama dan nilai:
@@ -42,12 +43,12 @@ Catatan pemetaan nama dan nilai:
 - `category` dan `priority` diubah ke huruf kecil (`Akademik` → `akademik`, `Mendesak` → `mendesak`).
 - `action`: `keep` → `label_only`, `archive` → `archive`, `trash` → `trash`; item yang punya draft
   (dan bukan `trash`) → `draft_reply`.
-- Keterbatasan: `PlanItem` lama bisa berisi `archive` **dan** draft sekaligus, sedangkan kontrak hanya
-  punya satu `action`. Item seperti itu dikirim sebagai `draft_reply`, sehingga niat arsip tidak
-  tampil di Laravel. Perlu diputuskan bersama sebelum eksekusi lewat Laravel dibuat.
+- Item `archive` yang punya draf dikirim sebagai `action: "draft_reply"` dengan `also_archive: true`:
+  draf balasan dibuat, lalu thread diarsipkan. Menyetujui item berarti menyetujui keduanya.
 - `summary` dan `needs_reply` lama tidak dikirim.
 - Validasi: `draft` wajib ada **jika dan hanya jika** `action == "draft_reply"`;
-  `requires_confirmation` wajib `true` **jika dan hanya jika** `action == "trash"`.
+  `requires_confirmation` wajib `true` **jika dan hanya jika** `action == "trash"`;
+  `also_archive` hanya boleh `true` bila `action == "draft_reply"`.
 
 ## 3. Kebijakan data
 
@@ -67,7 +68,7 @@ Catatan pemetaan nama dan nilai:
 | Kelompok | Isi | Umur |
 |---|---|---|
 | **Kekal** | `batches` (`agent_batch_id`, `status`, `plan_version`, `filters`, `summary` berisi angka saja, `finished_at`) dan kolom `batch_plan_items` selain dua kolom sementara: `item_id`, `thread_id`, `subject` (maks. 255 karakter), `from_name`, `category`, `priority`, `action`, `decision`, `result_status`, `applied` (hanya nama label, flag arsip, `draft_id`) | selama riwayat disimpan |
-| **Sementara** | `review_data` (`reason`, `confidence`, `draft{to,subject,body}`, `warnings[]`, `requires_confirmation`, `attachments`) dan `edited_draft_body` | dikosongkan saat batch `done`/`failed`/`cancelled`/`expired` |
+| **Sementara** | `review_data` (`also_archive`, `reason`, `confidence`, `draft{to,subject,body}`, `warnings[]`, `requires_confirmation`, `attachments`) dan `edited_draft_body` | dikosongkan saat batch `done`/`failed`/`cancelled`/`expired` |
 | **Tidak disimpan** | isi email, snippet | — |
 
 - `decision` dan `edited_draft_body` adalah status lokal Laravel dan tidak pernah ditimpa oleh sync
@@ -137,3 +138,4 @@ contoh lengkap ada di `tests/Fixtures/agent/`.
 | Tanggal | Perubahan |
 |---|---|
 | 16 Nov 2026 | Versi pertama: skema `PlanSnapshot`, kebijakan data, penyimpanan minimal Laravel. |
+| 17 Nov 2026 | Tambah `also_archive` agar item arsip + draf tidak kehilangan niat arsip. |

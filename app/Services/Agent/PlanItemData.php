@@ -50,6 +50,13 @@ final readonly class PlanItemData
             throw InvalidAgentPayload::field("{$at}.draft");
         }
 
+        $action = PlanAction::tryFrom((string) ($item['action'] ?? ''))
+            ?? throw InvalidAgentPayload::field("{$at}.action");
+        $alsoArchive = $item['also_archive'] ?? false;
+        if (! is_bool($alsoArchive) || ($alsoArchive && $action !== PlanAction::DraftReply)) {
+            throw InvalidAgentPayload::field("{$at}.also_archive");
+        }
+
         return new self(
             itemId: self::requiredString($item, 'item_id', $at),
             threadId: self::requiredString($item, 'thread_id', $at),
@@ -59,9 +66,10 @@ final readonly class PlanItemData
                 ?? throw InvalidAgentPayload::field("{$at}.category"),
             priority: PlanPriority::tryFrom((string) ($item['priority'] ?? ''))
                 ?? throw InvalidAgentPayload::field("{$at}.priority"),
-            action: PlanAction::tryFrom((string) ($item['action'] ?? ''))
-                ?? throw InvalidAgentPayload::field("{$at}.action"),
+            action: $action,
             reviewData: [
+                // also_archive: draf balasan dibuat, lalu thread diarsipkan (lihat dokumen kontrak).
+                'also_archive' => $alsoArchive,
                 'reason' => (string) ($item['reason'] ?? ''),
                 'confidence' => $confidence === null ? null : (float) $confidence,
                 'draft' => $draft === null ? null : [

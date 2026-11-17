@@ -188,6 +188,31 @@ def test_draft_hanya_untuk_draft_reply():
         PlanItem(**base, action="label_only", draft=draft)
 
 
+def test_arsip_dengan_draft_menjadi_draft_reply_also_archive(pii_map):
+    plan = [
+        _plan_item("t001", action="archive", needs_reply=True, draft_body="Terima kasih."),
+        _plan_item("t002", action="keep", needs_reply=True, draft_body="Baik."),
+        _plan_item("t003", action="archive"),
+    ]
+    raws = {t: _raw(t) for t in ("t001", "t002", "t003")}
+    items = build_plan_snapshot(plan, raws, pii_map, 1).items
+    assert [(i.action, i.also_archive) for i in items] == [
+        ("draft_reply", True), ("draft_reply", False), ("archive", False),
+    ]
+
+
+def test_also_archive_hanya_untuk_draft_reply():
+    base = dict(item_id="i_01", thread_id="t", thread=_thread(), category="tugas",
+                priority="normal", reason="r", requires_confirmation=False)
+    draft = Draft(to="a <a@b.id>", subject="Re: x", body="isi")
+    assert PlanItem(**base, action="draft_reply", draft=draft, also_archive=True).also_archive
+    for action in ("label_only", "archive"):
+        with pytest.raises(ValidationError):
+            PlanItem(**base, action=action, also_archive=True)
+    with pytest.raises(ValidationError):
+        PlanItem(**{**base, "requires_confirmation": True}, action="trash", also_archive=True)
+
+
 def test_trash_tidak_membawa_draft(pii_map):
     plan = [_plan_item(action="trash", needs_reply=True, draft_body="x")]
     item = build_plan_snapshot(plan, {"t001": _raw()}, pii_map, 1).items[0]

@@ -60,6 +60,11 @@ WHY_REQUIRES_CONFIRMATION = (
     "bergantung pada UI."
 )
 WHY_PLAN_VERSION = "Mencegah persetujuan dari tampilan yang sudah usang."
+WHY_ALSO_ARCHIVE = (
+    "Plan lama bisa berisi arsip dan draf sekaligus, sedangkan action hanya satu nilai; tanpa "
+    "field ini niat arsip hilang dan pengguna tidak melihat seluruh aksi yang ia setujui. Hanya "
+    "boleh true bila action == 'draft_reply'."
+)
 
 
 class _Out(BaseModel):
@@ -102,6 +107,7 @@ class PlanItem(_Out):
     - `category`/`priority` diubah ke huruf kecil
     - `action`: keep -> label_only, archive -> archive, trash -> trash;
       item dengan draft (dan bukan trash) -> draft_reply
+    - item archive + draft -> action draft_reply dengan also_archive = True
     """
 
     item_id: str = Field(pattern=r"^i_\d{2,}$", description=WHY_ITEM_ID)
@@ -110,6 +116,7 @@ class PlanItem(_Out):
     category: Category
     priority: Priority
     action: Action
+    also_archive: bool = Field(default=False, description=WHY_ALSO_ARCHIVE)
     reason: str
     confidence: float | None = Field(default=None, ge=0, le=1, description=WHY_CONFIDENCE)
     draft: Draft | None = Field(
@@ -124,6 +131,8 @@ class PlanItem(_Out):
             raise ValueError("draft wajib ada jika dan hanya jika action == 'draft_reply'")
         if self.requires_confirmation != (self.action == "trash"):
             raise ValueError("requires_confirmation wajib True jika dan hanya jika action == 'trash'")
+        if self.also_archive and self.action != "draft_reply":
+            raise ValueError("also_archive hanya boleh True bila action == 'draft_reply'")
         return self
 
 
@@ -225,7 +234,9 @@ def build_plan_snapshot(
 
         action = _ACTION_MAP[p["action"]]
         draft = None
+        also_archive = False
         if p.get("draft_body") and action != "trash":
+            also_archive = action == "archive"
             action = "draft_reply"
             draft = Draft(
                 to=_reply_to(meta),
@@ -242,6 +253,7 @@ def build_plan_snapshot(
             category=p["category"].lower(),
             priority=p["priority"].lower(),
             action=action,
+            also_archive=also_archive,
             reason=reason,
             confidence=p.get("confidence"),
             draft=draft,

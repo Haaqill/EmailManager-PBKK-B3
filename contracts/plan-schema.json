@@ -57,7 +57,7 @@
     },
     "PlanItem": {
       "additionalProperties": false,
-      "description": "Satu item rencana untuk Laravel.\n\nPemetaan dari `InboxState.plan` (app.contracts.PlanItem):\n- `InboxState.plan.draft_body` -> `draft.body`\n- `InboxState.plan.thread_id` tetap `thread_id`\n- `category`/`priority` diubah ke huruf kecil\n- `action`: keep -> label_only, archive -> archive, trash -> trash;\n  item dengan draft (dan bukan trash) -> draft_reply",
+      "description": "Satu item rencana untuk Laravel.\n\nPemetaan dari `InboxState.plan` (app.contracts.PlanItem):\n- `InboxState.plan.draft_body` -> `draft.body`\n- `InboxState.plan.thread_id` tetap `thread_id`\n- `category`/`priority` diubah ke huruf kecil\n- `action`: keep -> label_only, archive -> archive, trash -> trash;\n  item dengan draft (dan bukan trash) -> draft_reply\n- item archive + draft -> action draft_reply dengan also_archive = True",
       "properties": {
         "item_id": {
           "description": "ID stabil per plan_version; dipakai Laravel untuk keputusan dan sebagai kunci idempotensi eksekusi.",
@@ -103,6 +103,12 @@
           ],
           "title": "Action",
           "type": "string"
+        },
+        "also_archive": {
+          "default": false,
+          "description": "Plan lama bisa berisi arsip dan draf sekaligus, sedangkan action hanya satu nilai; tanpa field ini niat arsip hilang dan pengguna tidak melihat seluruh aksi yang ia setujui. Hanya boleh true bila action == 'draft_reply'.",
+          "title": "Also Archive",
+          "type": "boolean"
         },
         "reason": {
           "title": "Reason",

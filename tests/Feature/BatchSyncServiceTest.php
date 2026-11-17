@@ -70,6 +70,8 @@ class BatchSyncServiceTest extends TestCase
         $trash = $this->item($batch, 'i_02');
         $this->assertSame(PlanAction::Trash, $trash->action);
         $this->assertTrue($trash->review_data['requires_confirmation']);
+        $this->assertTrue($draft->review_data['also_archive']);
+        $this->assertFalse($trash->review_data['also_archive']);
         $this->assertNull($trash->review_data['draft']);
         $this->assertSame(PlanDecision::Pending, $trash->decision);
     }
@@ -96,7 +98,7 @@ class BatchSyncServiceTest extends TestCase
         $this->assertSame(PlanDecision::Approve, $draft->decision);
         $this->assertSame('ok', $draft->result_status);
         $this->assertSame(
-            ['labels' => ['Kategori/Akademik', 'Prioritas/Mendesak'], 'archived' => false, 'draft_id' => 'r-fiktif-001'],
+            ['labels' => ['Kategori/Akademik', 'Prioritas/Mendesak'], 'archived' => true, 'draft_id' => 'r-fiktif-001'],
             $draft->applied,
         );
 
@@ -115,6 +117,34 @@ class BatchSyncServiceTest extends TestCase
             $this->fail('InvalidAgentPayload tidak dilempar');
         } catch (InvalidAgentPayload $e) {
             $this->assertStringContainsString('plan.items[1].category', $e->getMessage());
+        }
+
+        $this->assertDatabaseCount('batches', 0);
+        $this->assertDatabaseCount('batch_plan_items', 0);
+    }
+
+    public function test_also_archive_defaults_to_false_when_absent(): void
+    {
+        $payload = $this->fixture('batch_awaiting_review');
+        unset($payload['plan']['items'][0]['also_archive']);
+
+        $batch = $this->sync->sync($this->user->id, $payload);
+
+        $this->assertFalse($this->item($batch, 'i_01')->review_data['also_archive']);
+    }
+
+    public function test_invalid_also_archive_throws_and_stores_nothing(): void
+    {
+        foreach ([[1, true], [0, 'ya']] as [$index, $value]) {   // trash + true; bukan boolean
+            $payload = $this->fixture('batch_awaiting_review');
+            $payload['plan']['items'][$index]['also_archive'] = $value;
+
+            try {
+                $this->sync->sync($this->user->id, $payload);
+                $this->fail('also_archive tidak valid diterima');
+            } catch (InvalidAgentPayload $e) {
+                $this->assertStringContainsString("plan.items[{$index}].also_archive", $e->getMessage());
+            }
         }
 
         $this->assertDatabaseCount('batches', 0);

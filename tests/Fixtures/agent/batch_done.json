@@ -1,0 +1,80 @@
+{
+    "batch_id": "b_fiktif_0001",
+    "status": "done",
+    "filters": {
+        "unread_only": true,
+        "newer_than_days": 7,
+        "max_results": 10
+    },
+    "plan": {
+        "plan_version": 1,
+        "items": [
+            {
+                "item_id": "i_01",
+                "thread_id": "18c0fiktif01",
+                "thread": {
+                    "subject": "Konfirmasi jadwal bimbingan",
+                    "from_name": "Dosen Fiktif",
+                    "from_domain": "kampus-fiktif.ac.id",
+                    "date": "2026-11-15T09:30:00+07:00",
+                    "attachments": []
+                },
+                "category": "akademik",
+                "priority": "mendesak",
+                "action": "draft_reply",
+                "reason": "Dosen Fiktif meminta konfirmasi jadwal sebelum Jumat.",
+                "confidence": 0.82,
+                "draft": {
+                    "to": "Sekretariat Fiktif <sekretariat@domain-lain.example>",
+                    "subject": "Re: Konfirmasi jadwal bimbingan",
+                    "body": "Yth. Dosen Fiktif, saya bisa hadir pada Kamis pukul 10.00."
+                },
+                "warnings": [],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_02",
+                "thread_id": "18c0fiktif02",
+                "thread": {
+                    "subject": "Selamat! Anda memenangkan hadiah",
+                    "from_name": "Undian Fiktif",
+                    "from_domain": "promo-fiktif.example",
+                    "date": "2026-11-14T20:00:00+07:00",
+                    "attachments": []
+                },
+                "category": "spam",
+                "priority": "nanti",
+                "action": "trash",
+                "reason": "Penipuan berkedok undian.",
+                "confidence": null,
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": true
+            }
+        ]
+    },
+    "report": {
+        "summary": {
+            "approved": 1,
+            "rejected": 1,
+            "actions_ok": 2,
+            "actions_failed": 0
+        },
+        "results": [
+            {
+                "item_id": "i_01",
+                "status": "ok",
+                "applied": {
+                    "labels": ["Kategori/Akademik", "Prioritas/Mendesak"],
+                    "archived": false,
+                    "draft_id": "r-fiktif-001"
+                }
+            },
+            {
+                "item_id": "i_02",
+                "status": "skipped",
+                "applied": null
+            }
+        ]
+    }
+}

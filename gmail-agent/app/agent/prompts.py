@@ -2,15 +2,17 @@
 
 Keluaran LLM terpisah dari PlanItem (kontrak 4): LLM mengisi
 submit_classification / submit_draft, program yang merakit PlanItem.
-Skema untuk LLM tanpa field opsional dan tanpa `X | None` (anyOf).
+Skema untuk LLM tanpa `X | None` (anyOf). Satu-satunya field opsional adalah
+`confidence`: skemanya ditulis eksplisit (string enum) dan nilai hilang/tidak
+valid menjadi None tanpa menggagalkan item.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
 
-from app.contracts import Category, Priority
+from app.contracts import CONFIDENCE_LEVELS, Category, Confidence, Priority
 from app.privacy.injection import wrap_email_content
 
 
@@ -24,6 +26,14 @@ class ClassificationOutput(BaseModel):
     action: Literal["keep", "archive"]   # trash: setelah MVP
     needs_reply: bool
     reason: str = Field(max_length=200)
+    confidence: Annotated[
+        Confidence | None,
+        WithJsonSchema({
+            "type": "string",
+            "enum": list(CONFIDENCE_LEVELS),
+            "description": "Keyakinan terhadap category dan action (lihat rubrik di instruksi).",
+        }),
+    ] = None
 
     @field_validator("priority")
     @classmethod
@@ -31,6 +41,14 @@ class ClassificationOutput(BaseModel):
         if info.data.get("category") in ("Promosi", "Spam") and v != "Nanti":
             raise ValueError("Promosi dan Spam selalu Nanti")
         return v
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence_lunak(cls, v: Any) -> str | None:
+        """Nilai tidak valid tidak menggagalkan klasifikasi; cukup menjadi None."""
+        if isinstance(v, str) and v.strip().lower() in CONFIDENCE_LEVELS:
+            return v.strip().lower()
+        return None
 
 
 class DraftOutput(BaseModel):
@@ -79,6 +97,10 @@ submit_classification dengan:
 - action: archive untuk Promosi, Spam, dan pengumuman yang tidak perlu tindakan; selain itu keep.
 - needs_reply: true hanya jika pengirim jelas menunggu balasan dari pengguna.
 - reason: alasan singkat (maks. 200 karakter).
+- confidence: keyakinanmu terhadap category dan action yang kamu pilih.
+  tinggi: isi email jelas mengarah ke satu kategori dan satu aksi.
+  sedang: email masuk akal untuk dua kategori atau dua aksi.
+  rendah: informasi kurang, saling bertentangan, atau email terpotong.
 Tanggal dan domain pengirim diambil dari metadata, bukan dari isi email.
 
 {SECURITY_RULES}"""

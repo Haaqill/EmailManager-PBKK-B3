@@ -14,6 +14,7 @@ class InboxState(TypedDict, total=False):
     batch_size: int
     threads: list[dict]          # FetchThreadResult.thread teredaksi (model_dump by_alias)
     classifications: list[dict]  # ClassificationOutput yang lolos validasi
+    confidence_missing: int      # jumlah klasifikasi dengan confidence hilang/tidak valid
     drafts: dict[str, str]       # thread_id -> body draft (teredaksi)
     plan: list[dict]             # PlanItem.model_dump()
     decisions: list[dict]        # ReviewDecision.model_dump(), diisi UI lewat update_state

@@ -63,7 +63,7 @@ class BatchSyncServiceTest extends TestCase
         $this->assertSame(PlanDecision::Pending, $draft->decision);
         $this->assertNull($draft->chat_session_id);
         $this->assertSame('Sekretariat Fiktif <sekretariat@domain-lain.example>', $draft->review_data['draft']['to']);
-        $this->assertSame(0.82, $draft->review_data['confidence']);
+        $this->assertSame('tinggi', $draft->review_data['confidence']);
         $this->assertSame('REPLY_TO_DOMAIN_MISMATCH', $draft->review_data['warnings'][0]['code']);
         $this->assertSame([['filename' => 'jadwal.pdf', 'type' => 'application/pdf', 'size' => 2048]], $draft->review_data['attachments']);
 
@@ -121,6 +121,58 @@ class BatchSyncServiceTest extends TestCase
 
         $this->assertDatabaseCount('batches', 0);
         $this->assertDatabaseCount('batch_plan_items', 0);
+    }
+
+    public function test_confidence_accepts_three_levels_and_null(): void
+    {
+        $payload = $this->fixture('batch_awaiting_review');
+        $template = $payload['plan']['items'][1];   // trash, tanpa draf
+        $payload['plan']['items'] = [];
+        foreach (['tinggi', 'sedang', 'rendah', null] as $i => $level) {
+            $payload['plan']['items'][] = ['item_id' => sprintf('i_%02d', $i + 1), 'confidence' => $level] + $template;
+        }
+
+        $batch = $this->sync->sync($this->user->id, $payload);
+
+        $this->assertSame(
+            ['i_01' => 'tinggi', 'i_02' => 'sedang', 'i_03' => 'rendah', 'i_04' => null],
+            BatchPlanItem::query()->where('batch_id', $batch->id)->orderBy('item_id')->get()
+                ->mapWithKeys(fn (BatchPlanItem $item) => [$item->item_id => $item->review_data['confidence']])
+                ->all(),
+        );
+        // Bukan gerbang keamanan: level apa pun tetap pending dan trash tetap wajib konfirmasi.
+        foreach (BatchPlanItem::query()->where('batch_id', $batch->id)->get() as $item) {
+            $this->assertSame(PlanDecision::Pending, $item->decision);
+            $this->assertTrue($item->review_data['requires_confirmation']);
+        }
+    }
+
+    public function test_invalid_confidence_throws_and_stores_nothing(): void
+    {
+        foreach ([0.82, 'Tinggi', 'yakin', '', true, ['tinggi']] as $value) {
+            $payload = $this->fixture('batch_awaiting_review');
+            $payload['plan']['items'][1]['confidence'] = $value;
+
+            try {
+                $this->sync->sync($this->user->id, $payload);
+                $this->fail('confidence tidak valid diterima: ' . json_encode($value));
+            } catch (InvalidAgentPayload $e) {
+                $this->assertStringContainsString('plan.items[1].confidence', $e->getMessage());
+            }
+        }
+
+        $this->assertDatabaseCount('batches', 0);
+        $this->assertDatabaseCount('batch_plan_items', 0);
+    }
+
+    public function test_confidence_is_cleared_with_review_data_after_done(): void
+    {
+        $this->sync->sync($this->user->id, $this->fixture('batch_awaiting_review'));
+        $this->assertSame('tinggi', BatchPlanItem::query()->where('item_id', 'i_01')->first()->review_data['confidence']);
+
+        $batch = $this->sync->sync($this->user->id, $this->fixture('batch_done'));
+
+        $this->assertSame(0, BatchPlanItem::query()->where('batch_id', $batch->id)->whereNotNull('review_data')->count());
     }
 
     public function test_also_archive_defaults_to_false_when_absent(): void

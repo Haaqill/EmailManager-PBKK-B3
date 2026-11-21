@@ -30,7 +30,7 @@ Laravel adalah `app.privacy.contract.PlanItem`. Field yang ditambahkan:
 |---|---|---|---|
 | `item_id` | `string` (`i_01`, `i_02`, …) | builder, urutan plan | ID stabil per `plan_version`; dipakai Laravel untuk keputusan dan sebagai kunci idempotensi eksekusi. |
 | `thread{}` | `ThreadInfo` (`subject`, `from_name`, `from_domain`, `date`, `attachments[]`) | metadata thread asli (sebelum redaksi) | Laravel butuh subjek dan pengirim untuk menampilkan baris dan riwayat; di plan lama hanya ada `thread_id`, sedangkan Laravel tidak boleh memegang token Gmail untuk mencarinya sendiri. |
-| `confidence` | `number` 0..1 atau `null` | keluaran klasifikasi bila ada | Untuk mengurutkan/menyorot baris yang meragukan di UI. **Bukan gerbang keamanan**: skor yang dilaporkan sendiri oleh LLM tidak terkalibrasi, dan persetujuan manusia tetap wajib untuk semua item. |
+| `confidence` | `"tinggi"`, `"sedang"`, `"rendah"`, atau `null` | keluaran klasifikasi (`ClassificationOutput.confidence`); hilang/tidak valid → `null` | Keyakinan model terhadap kategori dan aksi yang diusulkan, untuk menyorot baris yang meragukan di UI. Tiga tingkat, bukan angka: skor angka dari LLM memberi presisi palsu, sedangkan tiga tingkat jujur soal ketidakpastian. **Bukan gerbang keamanan**: tidak mengubah keputusan bawaan, `requires_confirmation`, atau kewajiban review; persetujuan manusia tetap wajib untuk semua item. |
 | `draft.to` / `draft.subject` | `string` | header thread (Reply-To atau From pesan yang dibalas; `Re: <subjek>`) | Prompt persetujuan Fase 2 menampilkan penerima sebenarnya; UI harus menampilkan hal yang sama karena pengguna menyetujui draft untuk penerima itu. Berasal dari header thread, bukan dari LLM. |
 | `warnings[]` | `{code, message}[]` | builder | Peringatan wajib Fase 2 dibuat terstruktur supaya UI bisa menonjolkannya tanpa mengurai teks. Ditambah `UNRESOLVED_PLACEHOLDER` untuk placeholder yang gagal dipulihkan. |
 | `requires_confirmation` | `boolean` | builder: `action == "trash"` | Trash berisiko tinggi dan wajib konfirmasi per item; ditentukan di Python agar tidak bergantung pada UI. |
@@ -139,3 +139,4 @@ contoh lengkap ada di `tests/Fixtures/agent/`.
 |---|---|
 | 16 Nov 2026 | Versi pertama: skema `PlanSnapshot`, kebijakan data, penyimpanan minimal Laravel. |
 | 17 Nov 2026 | Tambah `also_archive` agar item arsip + draf tidak kehilangan niat arsip. |
+| 18 Nov 2026 | `confidence` diubah dari angka 0..1 menjadi tiga tingkat (`tinggi`/`sedang`/`rendah`) yang dihasilkan klasifikasi; nilai hilang/tidak valid menjadi `null`. |

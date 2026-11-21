@@ -70,7 +70,7 @@
             <textarea id="prompt-obrolan" wire:model="prompt" rows="2" maxlength="1000"
                       wire:loading.attr="disabled" wire:target="sendMessage, retry"
                       @keydown.enter="if (! $event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit(); }"
-                      aria-describedby="petunjuk-prompt @error('prompt') galat-prompt @enderror"
+                      aria-describedby="petunjuk-prompt catatan-ai @error('prompt') galat-prompt @enderror"
                       @error('prompt') aria-invalid="true" @enderror
                       class="min-w-0 flex-1 resize-y rounded-md border-slate-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                       placeholder="Tulis pesan…"></textarea>
@@ -83,5 +83,8 @@
             <p id="galat-prompt" class="mt-1 text-sm text-red-700">{{ $message }}</p>
         @enderror
         <p id="petunjuk-prompt" class="mt-1 text-xs text-slate-500">Enter untuk kirim, Shift+Enter untuk baris baru. Maksimal 1000 karakter.</p>
+        <p id="catatan-ai" class="mt-1 text-xs text-slate-500">
+            AI dapat membuat kesalahan. Jawaban obrolan belum disertai tingkat keyakinan; periksa kembali informasi penting.
+        </p>
     </form>
 </section>

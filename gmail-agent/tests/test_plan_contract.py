@@ -117,7 +117,7 @@ def test_pemetaan_nilai_lama_ke_kabel(pii_map):
     assert [i.action for i in items] == ["label_only", "archive", "trash"]
     assert [i.requires_confirmation for i in items] == [False, False, True]
     assert (items[1].category, items[1].priority) == ("promosi", "nanti")
-    assert all(i.confidence is None for i in items)   # klasifikasi belum memberi confidence
+    assert all(i.confidence is None for i in items)   # plan tanpa confidence
 
 
 # (3) placeholder yang tidak terselesaikan
@@ -219,21 +219,27 @@ def test_trash_tidak_membawa_draft(pii_map):
     assert item.action == "trash" and item.draft is None
 
 
-# (6) confidence
-@pytest.mark.parametrize("value", [-0.01, 1.01, 5])
-def test_confidence_di_luar_rentang_ditolak(value):
+# (6) confidence: tiga tingkat, bukan angka
+@pytest.mark.parametrize("value", [0.5, 1, "Tinggi", "yakin", ""])
+def test_confidence_bukan_level_ditolak_kontrak(value):
     with pytest.raises(ValidationError):
         PlanItem(item_id="i_01", thread_id="t", thread=_thread(), category="tugas",
                  priority="normal", action="label_only", reason="r",
                  confidence=value, requires_confirmation=False)
 
 
-@pytest.mark.parametrize("value", [0, 0.5, 1, None])
-def test_confidence_dalam_rentang_diterima(value):
+@pytest.mark.parametrize("value", ["tinggi", "sedang", "rendah", None])
+def test_confidence_level_diterima_kontrak(value):
     item = PlanItem(item_id="i_01", thread_id="t", thread=_thread(), category="tugas",
                     priority="normal", action="label_only", reason="r",
                     confidence=value, requires_confirmation=False)
     assert item.confidence == value
+
+
+def test_confidence_diteruskan_builder(pii_map):
+    plan = [_plan_item("t001", confidence="rendah"), _plan_item("t002")]
+    items = build_plan_snapshot(plan, {t: _raw(t) for t in ("t001", "t002")}, pii_map, 1).items
+    assert [i.confidence for i in items] == ["rendah", None]
 
 
 # (7) drift skema

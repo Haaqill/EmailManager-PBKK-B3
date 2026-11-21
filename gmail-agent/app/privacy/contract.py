@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.contracts import PiiMap
+from app.contracts import Confidence, PiiMap
 from app.gmail.schemas import GmailAttachment
 from app.privacy.redact import PLACEHOLDER_RE, SECRET, parse_addresses, restore
 
@@ -42,9 +42,10 @@ WHY_THREAD = (
     "mencarinya sendiri."
 )
 WHY_CONFIDENCE = (
-    "Untuk mengurutkan/menyorot baris yang meragukan di UI. Bukan gerbang keamanan: skor "
-    "yang dilaporkan sendiri oleh LLM tidak terkalibrasi, dan persetujuan manusia tetap "
-    "wajib untuk semua item."
+    "Keyakinan model terhadap kategori dan aksi (tinggi/sedang/rendah), untuk menyorot baris "
+    "yang meragukan di UI. Tiga tingkat, bukan angka: skor angka dari LLM memberi presisi "
+    "palsu, sedangkan tiga tingkat jujur soal ketidakpastian. Bukan gerbang keamanan: tidak "
+    "mengubah keputusan bawaan, requires_confirmation, atau melewati review."
 )
 WHY_DRAFT_TO_SUBJECT = (
     "Prompt persetujuan Fase 2 menampilkan penerima sebenarnya; UI harus menampilkan hal "
@@ -118,7 +119,7 @@ class PlanItem(_Out):
     action: Action
     also_archive: bool = Field(default=False, description=WHY_ALSO_ARCHIVE)
     reason: str
-    confidence: float | None = Field(default=None, ge=0, le=1, description=WHY_CONFIDENCE)
+    confidence: Confidence | None = Field(default=None, description=WHY_CONFIDENCE)
     draft: Draft | None = Field(
         default=None, description="Wajib ada jika dan hanya jika action == 'draft_reply'."
     )

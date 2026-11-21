@@ -110,6 +110,10 @@ def html_to_text(html: str) -> str: ...
 Category = Literal["Akademik", "Tugas", "Pengumuman", "Pribadi", "Promosi", "Spam"]
 Priority = Literal["Mendesak", "Normal", "Nanti"]
 Action = Literal["keep", "archive", "trash"]  # trash: setelah MVP
+# Keyakinan model atas category + action. Bukan gerbang keamanan: tidak boleh
+# mengubah keputusan bawaan, requires_confirmation, atau melewati review.
+Confidence = Literal["tinggi", "sedang", "rendah"]
+CONFIDENCE_LEVELS: tuple[str, ...] = ("tinggi", "sedang", "rendah")
 
 class PlanItem(BaseModel):
     thread_id: str
@@ -120,6 +124,7 @@ class PlanItem(BaseModel):
     needs_reply: bool
     draft_body: str | None = None
     reason: str = Field(max_length=200)
+    confidence: Confidence | None = None   # dari ClassificationOutput; opsional
 
     @field_validator("priority")
     @classmethod

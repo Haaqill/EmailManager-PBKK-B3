@@ -37,6 +37,8 @@ class ChatPageTest extends TestCase
             ->assertOk()
             ->assertSee('<html lang="id">', false)
             ->assertSee('Lompat ke konten')
+            ->assertSee('AI dapat membuat kesalahan.')
+            ->assertDontSee('Keyakinan tinggi')
             ->assertSeeLivewire(SessionSidebar::class)
             ->assertSeeLivewire(ChatAgent::class);
     }

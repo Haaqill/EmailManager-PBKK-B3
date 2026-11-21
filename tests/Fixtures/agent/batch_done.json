@@ -24,7 +24,7 @@
                 "action": "draft_reply",
                 "also_archive": true,
                 "reason": "Dosen Fiktif meminta konfirmasi jadwal sebelum Jumat.",
-                "confidence": 0.82,
+                "confidence": "tinggi",
                 "draft": {
                     "to": "Sekretariat Fiktif <sekretariat@domain-lain.example>",
                     "subject": "Re: Konfirmasi jadwal bimbingan",

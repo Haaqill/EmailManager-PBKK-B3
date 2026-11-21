@@ -117,16 +117,19 @@
         "confidence": {
           "anyOf": [
             {
-              "maximum": 1.0,
-              "minimum": 0.0,
-              "type": "number"
+              "enum": [
+                "tinggi",
+                "sedang",
+                "rendah"
+              ],
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Untuk mengurutkan/menyorot baris yang meragukan di UI. Bukan gerbang keamanan: skor yang dilaporkan sendiri oleh LLM tidak terkalibrasi, dan persetujuan manusia tetap wajib untuk semua item.",
+          "description": "Keyakinan model terhadap kategori dan aksi (tinggi/sedang/rendah), untuk menyorot baris yang meragukan di UI. Tiga tingkat, bukan angka: skor angka dari LLM memberi presisi palsu, sedangkan tiga tingkat jujur soal ketidakpastian. Bukan gerbang keamanan: tidak mengubah keputusan bawaan, requires_confirmation, atau melewati review.",
           "title": "Confidence"
         },
         "draft": {

@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 
 use App\Enums\PlanAction;
 use App\Enums\PlanCategory;
+use App\Enums\PlanConfidence;
 use App\Enums\PlanPriority;
 
 /**
@@ -41,10 +42,13 @@ final readonly class PlanItemData
         $at = "plan.items[{$index}]";
         $thread = is_array($item['thread'] ?? null) ? $item['thread'] : [];
         $draft = $item['draft'] ?? null;
-        $confidence = $item['confidence'] ?? null;
-
-        if ($confidence !== null && (! is_numeric($confidence) || $confidence < 0 || $confidence > 1)) {
-            throw InvalidAgentPayload::field("{$at}.confidence");
+        $rawConfidence = $item['confidence'] ?? null;
+        $confidence = null;
+        if ($rawConfidence !== null) {
+            $confidence = is_string($rawConfidence) ? PlanConfidence::tryFrom($rawConfidence) : null;
+            if ($confidence === null) {
+                throw InvalidAgentPayload::field("{$at}.confidence");
+            }
         }
         if ($draft !== null && ! is_array($draft)) {
             throw InvalidAgentPayload::field("{$at}.draft");
@@ -71,7 +75,8 @@ final readonly class PlanItemData
                 // also_archive: draf balasan dibuat, lalu thread diarsipkan (lihat dokumen kontrak).
                 'also_archive' => $alsoArchive,
                 'reason' => (string) ($item['reason'] ?? ''),
-                'confidence' => $confidence === null ? null : (float) $confidence,
+                // Hanya untuk menyorot baris di UI; bukan gerbang keamanan.
+                'confidence' => $confidence?->value,
                 'draft' => $draft === null ? null : [
                     'to' => (string) ($draft['to'] ?? ''),
                     'subject' => (string) ($draft['subject'] ?? ''),

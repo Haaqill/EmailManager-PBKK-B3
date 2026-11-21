@@ -127,16 +127,55 @@ contoh lengkap ada di `tests/Fixtures/agent/`.
 - Dari `report.summary` hanya nilai angka yang disimpan. Dari `applied` hanya `labels`,
   `archived`, dan `draft_id`.
 
-## 6. Keputusan yang belum diambil
+## 6. Perintah Laravel → agen (DRAF, belum dikunci di tahap 2)
+
+Antarmuka di Laravel: `App\Services\Agent\AgentClient`, dipilih lewat `config('agent.driver')`
+(`AGENT_DRIVER`). Saat ini hanya ada driver `fake` (`FakeAgentClient`, mode demo dengan data
+contoh dari `resources/demo/batch_awaiting_review.json`). Driver `http` belum ada; memilihnya
+melempar pengecualian. Nama endpoint di bawah masih usulan.
+
+| Operasi | Usulan HTTP | Masukan | Keluaran / galat |
+|---|---|---|---|
+| `startBatch(userId, filters)` | `POST /v1/batches` | `filters` (mis. `{"max_results": 1..10}`) | `agent_batch_id` |
+| `getBatch(userId, agentBatchId)` | `GET /v1/batches/{id}` | — | payload bagian 5 |
+| `execute(userId, agentBatchId, planVersion, decisions)` | `POST /v1/batches/{id}/execute` | `plan_version`, `decisions[]` | — ; `PlanVersionMismatch` bila versi tidak cocok |
+| `cancel(userId, agentBatchId)` | `POST /v1/batches/{id}/cancel` | — | — |
+
+Semua operasi melempar `AgentUnavailable` bila agen tidak bisa dihubungi atau tidak mengenal batch.
+
+Bentuk `decisions`:
+
+```json
+[
+  { "item_id": "i_01", "decision": "approve", "edited_draft_body": "…" },
+  { "item_id": "i_02", "decision": "reject" },
+  { "item_id": "i_07", "decision": "approve", "confirmed_trash": true }
+]
+```
+
+- Hanya item yang diputuskan eksplisit yang dikirim. Item `pending` tidak dikirim dan **tidak
+  dijalankan** (default-deny); di report statusnya `skipped`.
+- `edited_draft_body` hanya untuk item `draft_reply` yang disetujui dan drafnya diubah pengguna
+  (maks. 10.000 karakter).
+- `confirmed_trash: true` wajib untuk item `requires_confirmation` yang disetujui. Agen tidak
+  menjalankan trash tanpa flag ini.
+- `execute` idempoten: panggilan ulang pada batch `executing`/`done` tidak mengeksekusi ulang.
+- Sebelum `execute`, Laravel mengambil `getBatch` terbaru. Bila `plan_version` berubah atau status
+  bukan `awaiting_review`, Laravel tidak mengeksekusi, mereset keputusan, dan meminta pengguna
+  meninjau ulang.
+- Status report per item: `ok`, `failed`, `skipped`, `rejected`.
+
+## 7. Keputusan yang belum diambil
 
 - Satu akun Gmail per instalasi atau per user.
 - `agent/turns` masuk v1 atau v1.1.
 - Cara membundel FastAPI di build NativePHP.
 
-## 7. Riwayat perubahan
+## 8. Riwayat perubahan
 
 | Tanggal | Perubahan |
 |---|---|
 | 16 Nov 2026 | Versi pertama: skema `PlanSnapshot`, kebijakan data, penyimpanan minimal Laravel. |
 | 17 Nov 2026 | Tambah `also_archive` agar item arsip + draf tidak kehilangan niat arsip. |
 | 18 Nov 2026 | `confidence` diubah dari angka 0..1 menjadi tiga tingkat (`tinggi`/`sedang`/`rendah`) yang dihasilkan klasifikasi; nilai hilang/tidak valid menjadi `null`. |
+| 21 Nov 2026 | Tambah bagian 6 "Perintah Laravel → agen" (draf): empat operasi `AgentClient`, bentuk `decisions`, default-deny, `confirmed_trash`, idempotensi `execute`. |

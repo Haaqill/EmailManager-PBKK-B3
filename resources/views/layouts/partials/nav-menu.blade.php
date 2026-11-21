@@ -2,7 +2,7 @@
     // route null = halaman belum ada: ditampilkan nonaktif, bukan tautan.
     $items = [
         ['label' => 'Obrolan', 'route' => 'chat', 'active' => request()->routeIs('chat', 'chat.show')],
-        ['label' => 'Batch', 'route' => null, 'active' => false],
+        ['label' => 'Batch', 'route' => 'batch', 'active' => request()->routeIs('batch', 'batch.show')],
         ['label' => 'Riwayat', 'route' => 'riwayat.index', 'active' => request()->routeIs('riwayat.*')],
         ['label' => 'Pengaturan', 'route' => null, 'active' => false],
     ];

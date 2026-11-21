@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BatchController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ChatHistoryController;
 use App\Http\Controllers\ProfileController;
@@ -20,6 +21,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->whereNumber('session')
         ->can('view', 'session')
         ->name('chat.show');
+
+    Route::get('/batch', [BatchController::class, 'index'])->name('batch');
+    Route::get('/batch/{batch}', [BatchController::class, 'show'])
+        ->whereNumber('batch')
+        ->can('view', 'batch')
+        ->name('batch.show');
 });
 
 Route::middleware('auth')->group(function () {

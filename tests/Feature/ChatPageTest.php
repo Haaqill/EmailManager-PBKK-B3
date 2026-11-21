@@ -133,12 +133,11 @@ class ChatPageTest extends TestCase
     {
         $html = $this->actingAs(User::factory()->create())->get(route('chat'))->assertOk()->getContent();
 
-        // Batch dan Pengaturan, masing-masing di sidebar desktop dan drawer mobile.
-        $this->assertSame(4, substr_count($html, 'aria-disabled="true" data-nav-soon'));
-        $this->assertSame(4, substr_count($html, '>Segera</span>'));
-        foreach (['Batch', 'Pengaturan'] as $label) {
-            $this->assertDoesNotMatchRegularExpression('/<a\b[^>]*>\s*' . $label . '\s*<\/a>/', $html);
-        }
+        // Pengaturan, di sidebar desktop dan drawer mobile. Batch sudah berupa tautan.
+        $this->assertSame(2, substr_count($html, 'aria-disabled="true" data-nav-soon'));
+        $this->assertSame(2, substr_count($html, '>Segera</span>'));
+        $this->assertDoesNotMatchRegularExpression('/<a\b[^>]*>\s*Pengaturan\s*<\/a>/', $html);
+        $this->assertMatchesRegularExpression('/<a\b[^>]*href="[^"]*\/batch"[^>]*>\s*Batch\s*<\/a>/', $html);
         $this->assertMatchesRegularExpression('/<a\b[^>]*aria-current="page"[^>]*>\s*Obrolan\s*<\/a>/', $html);
     }
 

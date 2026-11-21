@@ -1,0 +1,201 @@
+{
+    "batch_id": "b_demo_contoh",
+    "status": "awaiting_review",
+    "filters": {
+        "max_results": 10
+    },
+    "plan": {
+        "plan_version": 1,
+        "items": [
+            {
+                "item_id": "i_01",
+                "thread_id": "demo-thread-01",
+                "thread": {
+                    "subject": "Konfirmasi jadwal bimbingan proposal",
+                    "from_name": "Dosen Pembimbing (contoh)",
+                    "from_domain": "kampus.example",
+                    "date": "2026-11-20T08:15:00+07:00",
+                    "attachments": []
+                },
+                "category": "akademik",
+                "priority": "mendesak",
+                "action": "draft_reply",
+                "also_archive": false,
+                "reason": "Dosen meminta konfirmasi kehadiran bimbingan hari Selasa pukul 10.00.",
+                "confidence": "tinggi",
+                "draft": {
+                    "to": "Sekretariat Prodi (contoh) <sekretariat@prodi-lain.example>",
+                    "subject": "Re: Konfirmasi jadwal bimbingan proposal",
+                    "body": "Yth. Bapak/Ibu Dosen,\n\nSaya bersedia hadir bimbingan pada Selasa pukul 10.00.\n\nTerima kasih."
+                },
+                "warnings": [
+                    {
+                        "code": "REPLY_TO_DOMAIN_MISMATCH",
+                        "message": "Alamat Reply-To berbeda domain dengan pengirim email."
+                    }
+                ],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_02",
+                "thread_id": "demo-thread-02",
+                "thread": {
+                    "subject": "Batas Tugas 3 Basis Data diperpanjang",
+                    "from_name": "Asisten Praktikum (contoh)",
+                    "from_domain": "kampus.example",
+                    "date": "2026-11-20T07:40:00+07:00",
+                    "attachments": [
+                        {
+                            "filename": "rubrik-tugas-3.pdf",
+                            "type": "application/pdf",
+                            "size": 182344
+                        }
+                    ]
+                },
+                "category": "tugas",
+                "priority": "mendesak",
+                "action": "label_only",
+                "also_archive": false,
+                "reason": "Pengumuman perpanjangan tenggat tugas; cukup diberi label agar mudah ditemukan.",
+                "confidence": "tinggi",
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_03",
+                "thread_id": "demo-thread-03",
+                "thread": {
+                    "subject": "Kalender libur akhir semester",
+                    "from_name": "Biro Akademik (contoh)",
+                    "from_domain": "kampus.example",
+                    "date": "2026-11-19T15:00:00+07:00",
+                    "attachments": []
+                },
+                "category": "pengumuman",
+                "priority": "nanti",
+                "action": "archive",
+                "also_archive": false,
+                "reason": "Informasi umum tanpa tindakan; bisa diarsipkan.",
+                "confidence": "sedang",
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_04",
+                "thread_id": "demo-thread-04",
+                "thread": {
+                    "subject": "Ajak kerja kelompok PBKK hari Kamis",
+                    "from_name": "Teman Sekelas (contoh)",
+                    "from_domain": "mail.example",
+                    "date": "2026-11-19T21:10:00+07:00",
+                    "attachments": []
+                },
+                "category": "pribadi",
+                "priority": "normal",
+                "action": "draft_reply",
+                "also_archive": true,
+                "reason": "Teman menanyakan kesediaan kerja kelompok; percakapan selesai setelah dibalas.",
+                "confidence": "sedang",
+                "draft": {
+                    "to": "Teman Sekelas (contoh) <teman.sekelas@mail.example>",
+                    "subject": "Re: Ajak kerja kelompok PBKK hari Kamis",
+                    "body": "Halo, aku bisa ikut kerja kelompok hari Kamis setelah kelas siang. Sampai ketemu di perpustakaan."
+                },
+                "warnings": [],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_05",
+                "thread_id": "demo-thread-05",
+                "thread": {
+                    "subject": "Permohonan surat keterangan aktif kuliah",
+                    "from_name": "Layanan Mahasiswa (contoh)",
+                    "from_domain": "kampus.example",
+                    "date": "2026-11-18T10:05:00+07:00",
+                    "attachments": []
+                },
+                "category": "akademik",
+                "priority": "normal",
+                "action": "draft_reply",
+                "also_archive": false,
+                "reason": "Petugas meminta data tambahan untuk menerbitkan surat keterangan.",
+                "confidence": "rendah",
+                "draft": {
+                    "to": "Layanan Mahasiswa (contoh) <layanan@kampus.example>",
+                    "subject": "Re: Permohonan surat keterangan aktif kuliah",
+                    "body": "Selamat siang,\n\nBerikut data yang diminta. Surat mohon ditujukan kepada <PERSON_2>.\n\nTerima kasih."
+                },
+                "warnings": [
+                    {
+                        "code": "UNRESOLVED_PLACEHOLDER",
+                        "message": "Draf masih memuat placeholder PERSON yang tidak bisa dipulihkan."
+                    }
+                ],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_06",
+                "thread_id": "demo-thread-06",
+                "thread": {
+                    "subject": "Diskon 50% langganan aplikasi catatan",
+                    "from_name": "Toko Aplikasi (contoh)",
+                    "from_domain": "promo.example",
+                    "date": "2026-11-18T09:00:00+07:00",
+                    "attachments": []
+                },
+                "category": "promosi",
+                "priority": "nanti",
+                "action": "archive",
+                "also_archive": false,
+                "reason": "Email promosi; tidak perlu tindakan.",
+                "confidence": null,
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": false
+            },
+            {
+                "item_id": "i_07",
+                "thread_id": "demo-thread-07",
+                "thread": {
+                    "subject": "Akun email kampus Anda akan diblokir hari ini",
+                    "from_name": "Admin Palsu (contoh)",
+                    "from_domain": "blokir-akun.example",
+                    "date": "2026-11-17T23:45:00+07:00",
+                    "attachments": []
+                },
+                "category": "spam",
+                "priority": "nanti",
+                "action": "trash",
+                "also_archive": false,
+                "reason": "Phishing: meminta kata sandi lewat tautan dari domain di luar kampus.",
+                "confidence": "tinggi",
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": true
+            },
+            {
+                "item_id": "i_08",
+                "thread_id": "demo-thread-08",
+                "thread": {
+                    "subject": "Seminar nasional teknologi informasi",
+                    "from_name": "Himpunan Mahasiswa (contoh)",
+                    "from_domain": "kampus.example",
+                    "date": "2026-11-17T12:30:00+07:00",
+                    "attachments": []
+                },
+                "category": "pengumuman",
+                "priority": "normal",
+                "action": "label_only",
+                "also_archive": false,
+                "reason": "Undangan seminar; mungkin relevan, tetapi tidak jelas apakah perlu didaftarkan.",
+                "confidence": "rendah",
+                "draft": null,
+                "warnings": [],
+                "requires_confirmation": false
+            }
+        ]
+    },
+    "report": null
+}

@@ -35,6 +35,12 @@ class Batch extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** Batch yang belum berakhir (memblokir mulai batch baru). */
+    public function isActive(): bool
+    {
+        return ! $this->status->isFinished();
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(BatchPlanItem::class)->orderBy('item_id');

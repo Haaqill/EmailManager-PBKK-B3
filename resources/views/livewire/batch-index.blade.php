@@ -28,7 +28,7 @@
                 <button type="submit" wire:loading.attr="disabled" wire:target="start"
                         class="min-h-10 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 {{ $focus }}">
                     <span wire:loading.remove wire:target="start">Mulai</span>
-                    <span wire:loading wire:target="start">Memulai…</span>
+                    <span wire:loading wire:target="start" class="hidden">Memulai…</span>
                 </button>
             </form>
             <p id="petunjuk-jumlah" class="mt-2 text-xs text-slate-500">1 sampai {{ $maxThreads }} email terbaru. Tidak ada aksi yang dijalankan sebelum Anda menyetujuinya.</p>
@@ -61,7 +61,7 @@
                                 <span class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-700">{{ $batch->status->label() }}</span>
                             </span>
                             <span class="text-xs text-slate-500">
-                                {{ $batch->items_count }} item
+                                {{ $batch->items_count === 0 && $batch->isActive() ? 'sedang diproses' : $batch->items_count . ' item' }}
                                 @if (isset($s['approved']))
                                     · {{ (int) $s['approved'] }} disetujui, {{ (int) ($s['rejected'] ?? 0) }} ditolak
                                 @endif

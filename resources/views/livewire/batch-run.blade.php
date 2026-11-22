@@ -12,7 +12,7 @@
 
     <p aria-live="polite" class="text-sm text-slate-700">
         Status: <span class="font-medium">{{ $status->label() }}</span>
-        <span wire:loading wire:target="refreshStatus" class="text-slate-500">· memperbarui…</span>
+        <span wire:loading wire:target="refreshStatus" aria-hidden="true" class="hidden text-slate-500">· memperbarui…</span>
     </p>
 
     @if ($errorMessage)

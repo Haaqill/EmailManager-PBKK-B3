@@ -261,7 +261,7 @@ class BatchPageTest extends TestCase
             ->assertSee('draf balasan, lalu arsipkan thread')
             ->assertSee('Draf masih memuat placeholder PERSON yang tidak bisa dipulihkan.')
             ->assertSee('Keyakinan rendah')
-            ->assertSee('perkiraan model, belum dievaluasi')
+            ->assertSee('perkiraan model, belum terkalibrasi')
             ->assertSee('Sekretariat Prodi (contoh) &lt;sekretariat@prodi-lain.example&gt;', false)
             ->assertSee('Draf hanya dibuat di Gmail, tidak dikirim.')
             ->assertSeeHtml('x-trap.noscroll="open"');

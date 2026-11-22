@@ -4,6 +4,7 @@
 @php
     $focus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
     $btn = 'min-h-10 rounded-md px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ' . $focus;
+    $choice = $btn . ' flex-1 sm:flex-none';   // Setujui/Tolak: berdampingan selebar kartu di mobile
     $review = $item->review_data ?? [];
     $warnings = $review['warnings'] ?? [];
     $isTrash = $item->action === PlanAction::Trash || ($review['requires_confirmation'] ?? false);
@@ -39,7 +40,7 @@
         <p class="mt-1 break-words text-sm text-slate-600"><span class="font-medium text-slate-700">Alasan:</span> {{ $review['reason'] }}</p>
     @endif
     @if ($confidence)
-        <p class="mt-1 text-xs text-slate-400" title="Perkiraan model, belum dievaluasi">{{ $confidence->label() }} <span class="sr-only">(perkiraan model, belum dievaluasi)</span></p>
+        <p class="mt-1 text-xs text-slate-400" title="Perkiraan model, belum terkalibrasi; model cenderung terlalu yakin">{{ $confidence->label() }} <span class="sr-only">(perkiraan model, belum terkalibrasi)</span></p>
     @endif
 
     @if ($warnings)
@@ -88,11 +89,11 @@
     @endif
 
     <div class="mt-4 flex flex-wrap items-center gap-2" x-data="{ open: false }">
-        <span class="mr-auto text-sm text-slate-600">Keputusan: <span class="font-medium text-slate-900">{{ $item->decision === PlanDecision::Pending ? 'Belum diputuskan' : $item->decision->label() }}</span></span>
+        <span class="w-full text-sm text-slate-600 sm:mr-auto sm:w-auto">Keputusan: <span class="font-medium text-slate-900">{{ $item->decision === PlanDecision::Pending ? 'Belum diputuskan' : $item->decision->label() }}</span></span>
 
         @if ($isTrash)
             <button type="button" x-ref="pemicu" @click="open = true" aria-pressed="{{ $item->decision === PlanDecision::Approve ? 'true' : 'false' }}"
-                    class="{{ $btn }} {{ $item->decision === PlanDecision::Approve ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
+                    class="{{ $choice }} {{ $item->decision === PlanDecision::Approve ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
                 Setujui…
             </button>
             <div x-cloak x-show="open" class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -116,12 +117,12 @@
             </div>
         @else
             <button type="button" wire:click="setDecision({{ $idJs }}, 'approve')" aria-pressed="{{ $item->decision === PlanDecision::Approve ? 'true' : 'false' }}"
-                    class="{{ $btn }} {{ $item->decision === PlanDecision::Approve ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
+                    class="{{ $choice }} {{ $item->decision === PlanDecision::Approve ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
                 Setujui
             </button>
         @endif
         <button type="button" wire:click="setDecision({{ $idJs }}, 'reject')" aria-pressed="{{ $item->decision === PlanDecision::Reject ? 'true' : 'false' }}"
-                class="{{ $btn }} {{ $item->decision === PlanDecision::Reject ? 'bg-slate-700 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
+                class="{{ $choice }} {{ $item->decision === PlanDecision::Reject ? 'bg-slate-700 text-white' : 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50' }}">
             Tolak
         </button>
     </div>

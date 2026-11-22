@@ -13,11 +13,11 @@
             @forelse ($messages as $message)
                 @if ($message->role === 'user')
                     <div wire:key="pesan-{{ $message->id }}" class="flex justify-end">
-                        <p class="max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white">{{ $message->content }}</p>
+                        <p class="max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white [overflow-wrap:anywhere]">{{ $message->content }}</p>
                     </div>
                 @else
                     <div wire:key="pesan-{{ $message->id }}" class="max-w-[85%]">
-                        <div class="chat-markdown rounded-lg bg-slate-100 px-4 py-2">
+                        <div class="chat-markdown rounded-lg bg-slate-100 px-4 py-2 [overflow-wrap:anywhere]">
                             {!! Str::markdown($message->content, ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
                         </div>
                         @if ($message->model)
@@ -40,7 +40,7 @@
 
         {{-- Selama memproses: pesan yang baru dikirim (optimistis) dan jawaban yang mengalir. --}}
         <div wire:loading.flex wire:target="sendMessage" class="hidden justify-end" aria-hidden="true">
-            <p x-text="sent" class="max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-indigo-600/80 px-4 py-2 text-sm text-white"></p>
+            <p x-text="sent" class="max-w-[85%] whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-lg bg-indigo-600/80 px-4 py-2 text-sm text-white"></p>
         </div>
         <div wire:loading.block wire:target="sendMessage, retry" class="hidden max-w-[85%]">
             <p role="status" class="sr-only">Asisten sedang menjawab…</p>

@@ -22,7 +22,7 @@ enum BatchStatus: string
             self::Queued => 'Antre',
             self::Scanning => 'Memindai',
             self::Classifying => 'Mengklasifikasi',
-            self::Drafting => 'Menyusun draft',
+            self::Drafting => 'Menyusun draf',
             self::AwaitingReview => 'Menunggu review',
             self::Executing => 'Menjalankan',
             self::Done => 'Selesai',

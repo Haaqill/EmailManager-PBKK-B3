@@ -17,7 +17,7 @@
     <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-500">
         <li>Belum ada yang dijalankan. Item yang tidak Anda setujui tidak akan dijalankan.</li>
         <li>Draf balasan hanya dibuat di Gmail, tidak dikirim. Menyetujui item berarti menyetujui seluruh aksinya.</li>
-        <li>Tingkat keyakinan adalah perkiraan model yang belum dievaluasi; tidak menentukan apa pun.</li>
+        <li>Tingkat keyakinan adalah perkiraan model yang belum terkalibrasi; model cenderung terlalu yakin, jadi "tinggi" belum tentu benar. Tidak menentukan apa pun.</li>
     </ul>
 
     <div class="mt-4 flex flex-wrap gap-2">
@@ -75,7 +75,7 @@
                 <button type="button" wire:click="execute" @click="open = false" wire:loading.attr="disabled" wire:target="execute"
                         class="{{ $btn }} bg-indigo-600 px-4 font-semibold text-white hover:bg-indigo-500">
                     <span wire:loading.remove wire:target="execute">Ya, jalankan</span>
-                    <span wire:loading wire:target="execute">Menjalankan…</span>
+                    <span wire:loading wire:target="execute" class="hidden">Menjalankan…</span>
                 </button>
             </div>
         </div>

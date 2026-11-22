@@ -25,9 +25,14 @@
                                 @forelse ($sessions as $session)
                                     <tr>
                                         <td class="px-4 py-3">
-                                            <a href="{{ route('riwayat.show', $session) }}" class="text-indigo-600 hover:underline">
-                                                {{ $session->title }}
+                                            <a href="{{ route('riwayat.show', $session) }}" class="text-indigo-600 hover:underline [overflow-wrap:anywhere]">
+                                                {{ $session->title ?: 'Tanpa judul' }}
                                             </a>
+                                            @if ($session->mode === 'chat')
+                                                <a href="{{ route('chat.show', $session) }}" class="ml-2 text-xs text-slate-500 hover:text-indigo-700 hover:underline">
+                                                    Lanjutkan<span class="sr-only"> obrolan {{ $session->title }}</span>
+                                                </a>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-3 uppercase">{{ $session->mode }}</td>
                                         <td class="px-4 py-3">{{ $session->status }}</td>

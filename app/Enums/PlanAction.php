@@ -14,7 +14,7 @@ enum PlanAction: string
         return match ($this) {
             self::LabelOnly => 'Beri label',
             self::Archive => 'Arsipkan',
-            self::DraftReply => 'Draft balasan',
+            self::DraftReply => 'Draf balasan',
             self::Trash => 'Pindahkan ke Sampah',
         };
     }

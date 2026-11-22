@@ -74,11 +74,15 @@ Nomor fase mengikuti penamaan di kode dan komentar agen.
 | Smoke test LLM (Fase 0) | Selesai | `python smoke_test_llm.py`; lolos di gateway lab-alpro per 22 Nov 2026. |
 | Login OAuth Gmail (Fase 1.1) | Selesai | OAuth Desktop App, scope `gmail.modify`, token di keyring OS. Bawaan `GMAIL_BACKEND=mock`. |
 | Redaksi PII (Fase 1.2) | Selesai | Placeholder yang bisa dipulihkan; deteksi NIK, kartu, telepon, email, nama. |
-| Tool Gmail + dispatcher, loop ReAct (Fase 2) | Selesai | Scan maks. 10 thread, baca thread, label, arsip, Sampah, simpan draf; aksi hanya setelah review. |
+| Tool Gmail + dispatcher | Selesai | Scan maks. 10 thread, baca thread, label, arsip, simpan draf; aksi hanya setelah review. |
+| Loop ReAct untuk perintah bebas | Belum | `app/agent/react_loop.py` masih stub (`NotImplementedError`, "setelah MVP"). Ini mesin untuk `agent/turns`. |
 | Workflow `InboxGraph` (LangGraph) | Selesai | Klasifikasi dan draf lewat tool call, dengan koreksi ulang bila keluaran tidak valid. |
 | Kontrak `PlanSnapshot` + ekspor JSON Schema | Selesai | `app/privacy/contract.py` → `contracts/plan-schema.json`; tes gagal bila skema tertinggal. |
 | Tingkat confidence (`tinggi`/`sedang`/`rendah`) | Selesai | Penilaian diri LLM; **bukan gerbang keamanan**, hanya sorotan di UI. |
-| UI review Streamlit | Selesai | UI alternatif di sisi Python, terpisah dari UI Laravel. |
+| UI review Streamlit | Selesai | Tetap dipertahankan sebagai alat pengembangan; UI pengguna adalah Laravel. |
+| Status batch setelah agen restart | Belum | `MemorySaver` (memori proses): batch hilang tanpa jejak bila agen di-restart. Kontrak 6e: batch yang belum selesai harus dilaporkan `failed`, jadi registri batch perlu disimpan persisten. |
+| Aksi Sampah (`trash_thread`) | Belum | Tool belum ada ("setelah MVP"); `execute` mencatat Sampah sebagai gagal `NOT_ALLOWED`, padahal UI dan kontrak sudah mendukungnya. |
+| Token Gmail per user | Belum | Keyring memakai satu entri tetap (`KEYRING_USER` di `app/gmail/auth.py`), jadi masih satu akun per instalasi. |
 | Evaluasi klasifikasi (`eval/`) | Selesai | Lihat bagian 5. |
 | Run terjadwal (Fase 3), embedding (Fase 4), metrik kebocoran PII (Fase 5) | Belum / sebagian | Disebut di kode sebagai fase berikutnya; embedding opsional dan belum tersedia. |
 | Layanan HTTP (FastAPI) untuk Laravel | Belum | Endpoint di `docs/contract-laravel-python.md` bagian 5 dan 6 masih usulan. |
@@ -91,13 +95,17 @@ Sumber: `docs/contract-laravel-python.md`.
   kategori, prioritas, aksi `label_only`/`archive`/`trash`/`draft_reply`, `also_archive`, draf
   dengan penerima dan subjek, `warnings[]`, `requires_confirmation`, `confidence`,
   `plan_version`), kebijakan data, dan penyimpanan minimal di Laravel.
-- **Tahap 2 (draf, belum dikunci):** empat operasi `AgentClient`: `startBatch`, `getBatch`,
-  `execute` (dengan `plan_version`, `decisions[]`, `confirmed_trash`, idempoten), dan `cancel`.
-  Bentuk ini sudah dipakai oleh driver tiruan, sehingga driver `http` tinggal mengikutinya.
+- **Tahap 2 (dikunci 23 Nov 2026, belum diimplementasikan):** empat operasi batch
+  (`startBatch`, `getBatch`, `execute`, `cancel`) dan dua operasi auth Gmail, autentikasi
+  `AGENT_TOKEN` + `X-User-Id`, kode galat, timeout dan polling, serta perilaku saat agen restart.
+  Driver tiruan sudah memakai bentuk operasi batch ini. Cara menyalakan agen menunggu
+  `native:build`.
 - **Kode peringatan:** hanya `UNRESOLVED_PLACEHOLDER` yang benar-benar dihasilkan.
   `REPLY_TO_DOMAIN_MISMATCH`, `NEW_RECIPIENT`, dan `CROSS_THREAD_DATA` masih dicadangkan.
-- **Keputusan terbuka:** satu akun Gmail per instalasi atau per user; `agent/turns` masuk v1 atau
-  v1.1; cara membundel FastAPI di build NativePHP.
+- **Sudah diputuskan (22 Nov 2026):** satu akun Gmail per user; Laravel adalah UI utama,
+  Streamlit tetap ada untuk pengembangan.
+- **Keputusan terbuka:** `agent/turns` masuk v1 atau v1.1; cara membundel FastAPI di build
+  NativePHP.
 
 ## 5. Kualitas klasifikasi
 
@@ -144,17 +152,24 @@ dijalankan manual.
 - Jangan menjalankan `migrate:fresh`/`migrate:reset` di DB dev karena menghapus riwayat obrolan.
   Tes memakai `RefreshDatabase`.
 
-## 8. Pekerjaan yang belum di-commit
+## 8. Kaitan dengan tugas kuliah
 
-Di branch `feat/ui` ada perubahan yang sudah lolos tes tetapi belum di-commit:
+Butir yang belum ada di repo per 22 Nov 2026:
 
-1. User-Agent eksplisit di transport LLM agen, beserta tesnya.
-2. Rubrik klasifikasi, perbaikan label dataset, dan `tests/test_prompt_rubrik.py`.
-3. Perbaikan UI: riwayat bisa dilanjutkan, teks panjang tidak meluber, `/batch` di layar ponsel,
-   indikator loading tidak muncul sebelum waktunya.
-4. Hasil evaluasi di `docs/evaluasi-confidence.md` dan dokumen ini.
+| Pertemuan | Yang belum ada |
+|---|---|
+| P1 | Landing page (`/` masih `welcome` bawaan Laravel) |
+| P2 | Halaman 404 lewat `Route::fallback` |
+| P3 | Form `/pengaturan` (rute belum ada) |
+| P5 | Peran admin/tester (tabel `users` belum punya kolom role) |
+| P7 | Hapus riwayat dengan soft delete dan pesan flash |
+| P10 | Dashboard `/admin` |
+| P15 | Job queue (`app/Jobs` belum ada) dan installer `native:build` |
 
-`body.json` di root adalah file uji manual dan tidak boleh ikut di-commit.
+Bobot P15 terbesar ada pada build desktop (35%) dan UI responsif saat tool berjalan lewat queue
+(35%), jadi keduanya didahulukan di bagian 10.
+
+`body.json` di root adalah file uji manual dan tidak boleh di-commit.
 
 ## 9. Utang teknis dan risiko yang diketahui
 
@@ -167,31 +182,37 @@ Di branch `feat/ui` ada perubahan yang sudah lolos tes tetapi belum di-commit:
 | Tiga kode peringatan Fase 2 belum dihasilkan | Draf ke penerima baru atau domain berbeda tidak diberi peringatan | kontrak bagian 4 |
 | Nilai Senopati di `.env.example` salah tempat (`LLM_SENOPATI_MODEL` berisi URL, `LLM_SENOPATI_KEY` berisi nama model) | Membingungkan saat setup baru | `.env.example` |
 | Confidence belum terkalibrasi; dataset 10 thread | Level tidak boleh dipakai untuk keputusan otomatis | bagian 5 |
-| Dua UI review (Streamlit dan Laravel) | Perlu diputuskan mana yang dipertahankan | — |
+| Review tidak bisa dilanjutkan setelah agen restart | Pengguna harus memulai batch baru (diterima, kontrak 6e), karena `pii_map` tidak disimpan | `app/privacy/redact.py` |
+| Sampah belum bisa dijalankan | Usulan Sampah yang disetujui selalu gagal | `app/agent/graph.py` |
+| Token Gmail satu entri keyring | Belum memenuhi keputusan satu akun Gmail per user | `app/gmail/auth.py` |
+| Senopati hanya dari jaringan kampus | Uji pengguna di luar kampus perlu Ollama | `LLM_API_STYLE` di `gmail-agent/.env` |
 | Aturan kampus soal data pribadi belum terbit | Kebijakan data harus ditinjau ulang setelah aturan terbit | kontrak bagian 3c |
 
 ## 10. Usulan langkah berikutnya
 
-Urutan berdasarkan ketergantungan. Langkah 2 adalah inti produk; langkah lain bisa berjalan paralel
-oleh anggota berbeda.
+Urutan berdasarkan ketergantungan dan bobot nilai. Langkah 2 adalah inti produk; langkah lain bisa
+berjalan paralel oleh anggota berbeda.
 
-### Langkah 1: rapikan dan commit (segera)
+### Langkah 1: kurangi risiko build (segera)
 
-- Commit perubahan di bagian 8, lalu buka PR `feat/ui` → `main`.
-- Perbaiki nilai Senopati yang salah tempat di `.env.example`.
+- Coba `native:build` dengan `AGENT_DRIVER=fake` untuk membuktikan Laravel bisa jadi installer.
+- Konfirmasi tertulis ke dosen: tema disetujui, dan agen Python dipasang terpisah lewat skrip setup.
+- Perbaiki nilai Senopati yang salah tempat di `.env.example`; buka PR `feat/ui` → `main`.
 
-### Langkah 2: hubungkan Laravel dengan agen (tahap 2 kontrak)
+### Langkah 2: hubungkan Laravel dengan agen (tahap 2 kontrak) dan queue
 
-1. Putuskan dulu: satu akun Gmail per instalasi atau per user, dan cara autentikasi Laravel ke
-   agen (mis. token bersama di header). Keputusan ini menentukan desain OAuth.
-2. Kunci bagian 6 kontrak (nama endpoint, kode galat, timeout).
-3. Buat layanan HTTP di `gmail-agent/` yang membungkus `InboxGraph`: `POST /v1/batches`,
-   `GET /v1/batches/{id}`, `POST …/execute`, `POST …/cancel`. Batch berjalan di latar belakang;
-   checkpoint LangGraph menyimpan state sampai review.
-4. Buat driver `http` untuk `AgentClient` di Laravel. Tes kontrak memakai fixture yang sama
+1. ~~Tentukan cara autentikasi Laravel ke agen.~~ Selesai: kontrak bagian 6a.
+2. ~~Kunci bagian 6 kontrak.~~ Selesai 23 Nov 2026, kecuali cara menyalakan agen.
+3. Agen: simpan registri batch secara persisten (user, status, `plan_version`, hasil per item;
+   tanpa isi email dan `pii_map`), dan simpan token Gmail per user (entri keyring per `userId`).
+4. Buat layanan HTTP di `gmail-agent/` yang membungkus `InboxGraph`: `POST /v1/batches`,
+   `GET /v1/batches/{id}`, `POST …/execute`, `POST …/cancel`, serta `/auth/login` dan
+   `/auth/status` per user.
+5. Buat driver `http` untuk `AgentClient` di Laravel. Panggilan ke agen dan sync status berjalan
+   lewat Job di queue, sehingga UI tetap responsif. Tes kontrak memakai fixture yang sama
    dengan `BatchSyncService` dan `FakeAgentClient`.
-5. Alur OAuth Gmail yang dipicu dari UI Laravel. Token tetap hanya di agen.
-6. Uji ujung ke ujung dengan `GMAIL_BACKEND=mock`, lalu dengan akun Gmail uji.
+6. Alur Hubungkan Gmail di `/pengaturan`, dengan `wire:poll` ke `/auth/status`.
+7. Uji ujung ke ujung dengan `GMAIL_BACKEND=mock`, lalu dengan akun Gmail uji.
 
 Kriteria selesai: skenario `docs/demo-skenario.md` berjalan dengan `AGENT_DRIVER=http` tanpa
 mengubah UI.
@@ -217,11 +238,20 @@ mengubah UI.
   builder agen. Skema tidak perlu diubah.
 - Putuskan apakah prompt obrolan/API perlu diredaksi sebelum disimpan.
 
-### Langkah 5: keputusan produk
+- Sampah: buat tool `trash_thread` dengan konfirmasi per item, atau keluarkan Sampah dari usulan
+  agen sampai tool itu ada.
 
-- Pertahankan atau pensiunkan UI Streamlit setelah UI Laravel terhubung.
+### Langkah 5: tugas kuliah dan halaman pendukung
+
+- Landing page, halaman 404 (`Route::fallback`), `/pengaturan` dengan status Senopati/Ollama.
+- Peran admin/tester dengan Gate, `/admin` dengan widget.
+- Hapus riwayat dengan soft delete dan pesan flash.
+
+### Langkah 6: keputusan produk dan uji pengguna
+
 - Apakah obrolan bisa memanggil agen Gmail (`agent/turns`) di v1 atau v1.1.
 - Packaging (NativePHP dan cara membundel layanan Python).
+- Uji oleh pengguna sasaran; di luar jaringan kampus agen diarahkan ke Ollama.
 - Fase 3 (run terjadwal tanpa interaksi) setelah alur manual stabil.
 
 ## 11. Dokumen terkait

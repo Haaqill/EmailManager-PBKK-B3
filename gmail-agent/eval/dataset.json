@@ -24,7 +24,7 @@
         ],
         "expected": {
             "category": "Tugas",
-            "priority": "Mendesak",
+            "priority": "Normal",
             "needs_reply": false,
             "action": "keep"
         },
@@ -50,7 +50,7 @@
         "attachments": [],
         "expected": {
             "category": "Akademik",
-            "priority": "Normal",
+            "priority": "Mendesak",
             "needs_reply": true,
             "action": "keep"
         },
@@ -154,13 +154,13 @@
         "labels": [
             "INBOX"
         ],
-        "subject": "Unusual sign-in notice for demo account",
+        "subject": "Urgent: verify your demo account within 24 hours",
         "messages": [
             {
-                "from": "Example Security Desk <notice@accounts.example>",
+                "from": "Account Security Team <security@demo-accounts-verify.example>",
                 "to": "student06@mail.example",
                 "date": "2026-10-18T07:25:00+07:00",
-                "body": "A sign-in to the fictional demo account was blocked. Do not reply with passwords or verification codes. Open the official demo portal directly if you need to review account activity."
+                "body": "Your fictional demo account will be suspended in 24 hours. To keep access, reply to this email with your password and the verification code we just sent, or log in at http://demo-accounts-verify.example/login to confirm your identity."
             }
         ],
         "attachments": [],

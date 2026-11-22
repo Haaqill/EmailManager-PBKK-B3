@@ -102,7 +102,7 @@ def test_stability():
 # ------------------------------------------------------------------ run_once (MockLLM)
 def test_run_once_memakai_node_classify_dan_menilai_label():
     llm = MockLLM([
-        _cls("t001", "Tugas", "Mendesak", "keep", "tinggi"),        # benar
+        _cls("t001", "Tugas", "Normal", "keep", "tinggi"),          # benar
         _cls("t006", "Promosi", "Nanti", "archive", "rendah"),      # kategori salah (Spam)
         *[make_text_response("bukan tool")] * 3,                   # t007: gagal setelah koreksi
     ])

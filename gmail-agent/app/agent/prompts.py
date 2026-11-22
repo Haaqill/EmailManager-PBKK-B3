@@ -8,6 +8,7 @@ valid menjadi None tanpa menggagalkan item.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
@@ -93,7 +94,17 @@ submit_classification dengan:
 - category: Akademik (perkuliahan, dosen, nilai), Tugas (tugas/tenggat pengumpulan),
   Pengumuman (informasi umum kampus/organisasi), Pribadi (keluarga, teman),
   Promosi (iklan, newsletter, penawaran), Spam (penipuan, tidak diminta).
-- priority: Mendesak (perlu tindakan <= 2 hari), Normal, Nanti. Promosi dan Spam selalu Nanti.
+  Pemberitahuan dari unit kampus (sekretariat, fakultas, bagian akademik) yang berlaku untuk
+  banyak mahasiswa, mis. perubahan ruang atau jadwal kuliah, adalah Pengumuman, bukan Akademik.
+  Akademik untuk urusan perkuliahan yang menyangkut pengguna secara pribadi (dosen, nilai, bimbingan).
+  Spam: pesan yang meminta kata sandi, kode verifikasi, data pribadi, atau pembayaran, atau
+  mengarahkan ke tautan/domain yang meniru layanan resmi. Notifikasi keamanan yang hanya memberi
+  informasi dan tidak meminta data semacam itu adalah Pengumuman.
+- priority, dihitung dari tanggal pesan terakhir di thread (bukan tanggal hari ini):
+  Mendesak: ada tindakan atau balasan dari pengguna yang jatuh tempo paling lambat 2 hari
+  setelah tanggal itu. Normal: ada tindakan atau balasan, tetapi tenggatnya lebih dari 2 hari
+  atau tidak disebut. Nanti: tidak ada tindakan atau balasan yang diperlukan.
+  Promosi dan Spam selalu Nanti.
 - action: archive untuk Promosi, Spam, dan pengumuman yang tidak perlu tindakan; selain itu keep.
 - needs_reply: true hanya jika pengirim jelas menunggu balasan dari pengguna.
 - reason: alasan singkat (maks. 200 karakter).
@@ -116,13 +127,24 @@ Draft akan ditinjau pengguna sebelum disimpan; tidak ada email yang dikirim.
 {SECURITY_RULES}"""
 
 
+_WEEKDAYS = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
+
+
+def _date_with_weekday(value: str) -> str:
+    """Tambahkan nama hari agar "Jumat"/"besok" di isi email bisa dihitung dari tanggal pesan."""
+    try:
+        return f"{value} ({_WEEKDAYS[datetime.fromisoformat(value).weekday()]})"
+    except (TypeError, ValueError):
+        return value
+
+
 def build_thread_message(thread: dict) -> str:
     """Pesan user untuk satu thread: metadata di luar, isi di dalam <email_content>."""
     attachments = ", ".join(
         f"{a['name']} ({a['mime_type']}, {a['size_bytes']} byte)" for a in thread.get("attachments", [])
     ) or "-"
     bodies = "\n\n".join(
-        f"Dari: {m['from']}\nTanggal: {m['date']}\n{m['body_text']}"
+        f"Dari: {m['from']}\nTanggal: {_date_with_weekday(m['date'])}\n{m['body_text']}"
         for m in thread.get("messages", [])
     )
     return (

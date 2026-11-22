@@ -26,6 +26,10 @@ from urllib.parse import urlparse
 
 from app.config import LOOPBACK_HOSTS, LLMConfig
 
+# Gateway Senopati (lab-alpro) menolak User-Agent bawaan "Python-urllib/x" dengan HTTP 403.
+# Nama klien generik; tidak memuat data pengguna.
+USER_AGENT = "gmail-inbox-manager-agent/1.0"
+
 
 logger = logging.getLogger("gmail_agent.llm.transport")
 logger.setLevel(logging.INFO)
@@ -150,6 +154,7 @@ def send_chat_request(cfg: LLMConfig, messages: list[dict[str, Any]],
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {cfg.api_key}",
+            "User-Agent": USER_AGENT,
         },
     )
     started = time.perf_counter()

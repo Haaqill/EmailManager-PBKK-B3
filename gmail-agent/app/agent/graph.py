@@ -136,12 +136,15 @@ class InboxGraph:
     def _classify(self, state: InboxState) -> dict:
         errors = list(state.get("errors", []))
         results = []
+        confidence_missing = 0   # hanya jumlah; isi email tidak dicatat
         for thread in state.get("threads", []):
             out = self._ask(SYSTEM_CLASSIFY, thread, SUBMIT_CLASSIFICATION_TOOL,
                             ClassificationOutput, "classify", errors)
             if out is not None:
+                confidence_missing += out.confidence is None
                 results.append(out.model_dump())
-        return {"classifications": results, "errors": errors}
+        return {"classifications": results, "errors": errors,
+                "confidence_missing": confidence_missing}
 
     def _draft(self, state: InboxState) -> dict:
         errors = list(state.get("errors", []))
@@ -233,6 +236,8 @@ class InboxGraph:
             "actions_failed": sum(not r["ok"] for r in history),
             "per_tool": per_tool,
             "failed": [r for r in history if not r["ok"]],
+            # klasifikasi tanpa confidence yang valid (hilang atau tidak dikenal)
+            "confidence_missing": state.get("confidence_missing", 0),
             "errors": list(state.get("errors", [])),
         }
         release_pii_map(state["batch_id"])

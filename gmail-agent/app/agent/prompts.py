@@ -2,15 +2,18 @@
 
 Keluaran LLM terpisah dari PlanItem (kontrak 4): LLM mengisi
 submit_classification / submit_draft, program yang merakit PlanItem.
-Skema untuk LLM tanpa field opsional dan tanpa `X | None` (anyOf).
+Skema untuk LLM tanpa `X | None` (anyOf). Satu-satunya field opsional adalah
+`confidence`: skemanya ditulis eksplisit (string enum) dan nilai hilang/tidak
+valid menjadi None tanpa menggagalkan item.
 """
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
 
-from app.contracts import Category, Priority
+from app.contracts import CONFIDENCE_LEVELS, Category, Confidence, Priority
 from app.privacy.injection import wrap_email_content
 
 
@@ -24,6 +27,14 @@ class ClassificationOutput(BaseModel):
     action: Literal["keep", "archive"]   # trash: setelah MVP
     needs_reply: bool
     reason: str = Field(max_length=200)
+    confidence: Annotated[
+        Confidence | None,
+        WithJsonSchema({
+            "type": "string",
+            "enum": list(CONFIDENCE_LEVELS),
+            "description": "Keyakinan terhadap category dan action (lihat rubrik di instruksi).",
+        }),
+    ] = None
 
     @field_validator("priority")
     @classmethod
@@ -31,6 +42,14 @@ class ClassificationOutput(BaseModel):
         if info.data.get("category") in ("Promosi", "Spam") and v != "Nanti":
             raise ValueError("Promosi dan Spam selalu Nanti")
         return v
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence_lunak(cls, v: Any) -> str | None:
+        """Nilai tidak valid tidak menggagalkan klasifikasi; cukup menjadi None."""
+        if isinstance(v, str) and v.strip().lower() in CONFIDENCE_LEVELS:
+            return v.strip().lower()
+        return None
 
 
 class DraftOutput(BaseModel):
@@ -75,10 +94,24 @@ submit_classification dengan:
 - category: Akademik (perkuliahan, dosen, nilai), Tugas (tugas/tenggat pengumpulan),
   Pengumuman (informasi umum kampus/organisasi), Pribadi (keluarga, teman),
   Promosi (iklan, newsletter, penawaran), Spam (penipuan, tidak diminta).
-- priority: Mendesak (perlu tindakan <= 2 hari), Normal, Nanti. Promosi dan Spam selalu Nanti.
+  Pemberitahuan dari unit kampus (sekretariat, fakultas, bagian akademik) yang berlaku untuk
+  banyak mahasiswa, mis. perubahan ruang atau jadwal kuliah, adalah Pengumuman, bukan Akademik.
+  Akademik untuk urusan perkuliahan yang menyangkut pengguna secara pribadi (dosen, nilai, bimbingan).
+  Spam: pesan yang meminta kata sandi, kode verifikasi, data pribadi, atau pembayaran, atau
+  mengarahkan ke tautan/domain yang meniru layanan resmi. Notifikasi keamanan yang hanya memberi
+  informasi dan tidak meminta data semacam itu adalah Pengumuman.
+- priority, dihitung dari tanggal pesan terakhir di thread (bukan tanggal hari ini):
+  Mendesak: ada tindakan atau balasan dari pengguna yang jatuh tempo paling lambat 2 hari
+  setelah tanggal itu. Normal: ada tindakan atau balasan, tetapi tenggatnya lebih dari 2 hari
+  atau tidak disebut. Nanti: tidak ada tindakan atau balasan yang diperlukan.
+  Promosi dan Spam selalu Nanti.
 - action: archive untuk Promosi, Spam, dan pengumuman yang tidak perlu tindakan; selain itu keep.
 - needs_reply: true hanya jika pengirim jelas menunggu balasan dari pengguna.
 - reason: alasan singkat (maks. 200 karakter).
+- confidence: keyakinanmu terhadap category dan action yang kamu pilih.
+  tinggi: isi email jelas mengarah ke satu kategori dan satu aksi.
+  sedang: email masuk akal untuk dua kategori atau dua aksi.
+  rendah: informasi kurang, saling bertentangan, atau email terpotong.
 Tanggal dan domain pengirim diambil dari metadata, bukan dari isi email.
 
 {SECURITY_RULES}"""
@@ -94,13 +127,24 @@ Draft akan ditinjau pengguna sebelum disimpan; tidak ada email yang dikirim.
 {SECURITY_RULES}"""
 
 
+_WEEKDAYS = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
+
+
+def _date_with_weekday(value: str) -> str:
+    """Tambahkan nama hari agar "Jumat"/"besok" di isi email bisa dihitung dari tanggal pesan."""
+    try:
+        return f"{value} ({_WEEKDAYS[datetime.fromisoformat(value).weekday()]})"
+    except (TypeError, ValueError):
+        return value
+
+
 def build_thread_message(thread: dict) -> str:
     """Pesan user untuk satu thread: metadata di luar, isi di dalam <email_content>."""
     attachments = ", ".join(
         f"{a['name']} ({a['mime_type']}, {a['size_bytes']} byte)" for a in thread.get("attachments", [])
     ) or "-"
     bodies = "\n\n".join(
-        f"Dari: {m['from']}\nTanggal: {m['date']}\n{m['body_text']}"
+        f"Dari: {m['from']}\nTanggal: {_date_with_weekday(m['date'])}\n{m['body_text']}"
         for m in thread.get("messages", [])
     )
     return (

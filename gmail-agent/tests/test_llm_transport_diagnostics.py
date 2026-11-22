@@ -6,7 +6,7 @@ import logging
 import pytest
 
 from app.config import LLMConfig
-from app.llm.transport import LLMHTTPError, send_chat_request
+from app.llm.transport import USER_AGENT, LLMHTTPError, send_chat_request
 from tests.fake_openai_server import FakeOpenAI
 
 
@@ -54,3 +54,12 @@ def test_http_error_log_has_safe_classification_without_raw_response(caplog):
     assert record.gateway_error_kind == "tools_unsupported"
     assert "not supported" not in record.getMessage()
     assert "test-secret-key" not in record.getMessage()
+
+
+def test_user_agent_eksplisit_bukan_python_urllib():
+    # Gateway Senopati menolak "Python-urllib/x" dengan 403.
+    with FakeOpenAI("tools_ok", api_key="test-secret-key") as fake:
+        send_chat_request(_config(fake.base_url), [{"role": "user", "content": "halo"}], tools=TOOLS)
+
+    assert fake.user_agents == [USER_AGENT]
+    assert "python-urllib" not in USER_AGENT.lower()

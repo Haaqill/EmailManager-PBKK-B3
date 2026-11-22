@@ -60,6 +60,34 @@ class ChatHistoryTest extends TestCase
         $this->get(route('riwayat.index'))->assertRedirect(route('login'));
     }
 
+    public function test_sesi_chat_bisa_dilanjutkan_dari_riwayat(): void
+    {
+        $user = User::factory()->create();
+        $chat = ChatSession::factory()->for($user)->create(['mode' => 'chat', 'title' => 'Sesi chat']);
+        $batch = $this->seedSession($user, messages: 1, items: 0);
+        $continue = '/<a\b[^>]*href="' . preg_quote(route('chat.show', $chat), '/') . '"[^>]*>\s*Lanjutkan obrolan\s*<\/a>/';
+
+        $html = $this->actingAs($user)->get(route('riwayat.show', $chat))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression($continue, $html);
+
+        $this->actingAs($user)->get(route('riwayat.show', $batch))->assertOk()->assertDontSee('Lanjutkan obrolan');
+        $this->actingAs($user)->get(route('riwayat.index'))->assertOk()
+            ->assertSee('href="' . route('chat.show', $chat) . '"', false)
+            ->assertDontSee('href="' . route('chat.show', $batch) . '"', false);
+    }
+
+    public function test_pesan_panjang_tanpa_spasi_dipenggal(): void
+    {
+        $user = User::factory()->create();
+        $session = ChatSession::factory()->for($user)->create(['mode' => 'chat', 'title' => str_repeat('q', 60)]);
+        $session->messages()->create(['role' => 'user', 'content' => str_repeat('q', 1000)]);
+
+        $html = $this->actingAs($user)->get(route('riwayat.show', $session))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/<p class="[^"]*\[overflow-wrap:anywhere\][^"]*">q{1000}<\/p>/', $html);
+        $this->assertMatchesRegularExpression('/<h2 class="[^"]*\[overflow-wrap:anywhere\][^"]*">\s*q{60}\s*<\/h2>/', $html);
+    }
+
     private function seedSession(User $user, int $messages, int $items): ChatSession
     {
         $session = ChatSession::factory()->batch()->for($user)->create();

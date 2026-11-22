@@ -26,6 +26,11 @@ class User extends Authenticatable
         return $this->hasMany(ChatSession::class);
     }
 
+    public function batches(): HasMany
+    {
+        return $this->hasMany(Batch::class);
+    }
+
     /**
      * Get the attributes that should be cast.
      *

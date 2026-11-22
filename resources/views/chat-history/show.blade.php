@@ -1,8 +1,16 @@
 <x-app-layout>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ $session->title }}
-        </h2>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="min-w-0 font-semibold text-xl text-gray-800 leading-tight [overflow-wrap:anywhere]">
+                {{ $session->title ?: 'Tanpa judul' }}
+            </h2>
+            @if ($session->mode === 'chat')
+                <a href="{{ route('chat.show', $session) }}"
+                   class="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                    Lanjutkan obrolan
+                </a>
+            @endif
+        </div>
     </x-slot>
 
     <div class="py-12">
@@ -18,12 +26,12 @@
                     <h3 class="text-lg font-semibold mb-3">Pesan</h3>
                     <div class="space-y-4">
                         @forelse ($session->messages as $message)
-                            <div class="rounded-lg border border-gray-200 p-4">
+                            <div class="min-w-0 rounded-lg border border-gray-200 p-4">
                                 <div class="flex justify-between text-xs uppercase tracking-wide text-gray-500 mb-2">
                                     <span>{{ $message->role }}</span>
                                     <span>{{ $message->created_at?->format('d M Y, H:i') }}</span>
                                 </div>
-                                <p class="whitespace-pre-wrap text-sm text-gray-800">{{ $message->content }}</p>
+                                <p class="whitespace-pre-wrap text-sm text-gray-800 [overflow-wrap:anywhere]">{{ $message->content }}</p>
 
                                 @if ($message->toolLogs->isNotEmpty())
                                     <div class="mt-4">

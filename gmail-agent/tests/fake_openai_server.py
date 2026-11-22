@@ -28,6 +28,7 @@ class FakeOpenAI:
         self.requests: list[dict] = []
         self.errors: list[str] = []
         self.auth_headers: list[str | None] = []
+        self.user_agents: list[str | None] = []
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -47,6 +48,7 @@ class FakeOpenAI:
                 req = json.loads(self.rfile.read(length) or b"{}")
                 outer.requests.append(req)
                 outer.auth_headers.append(self.headers.get("Authorization"))
+                outer.user_agents.append(self.headers.get("User-Agent"))
                 if outer.mode == "redirect":
                     self.send_response(307)
                     self.send_header("Location", "http://redirect-target.invalid/v1/chat/completions")

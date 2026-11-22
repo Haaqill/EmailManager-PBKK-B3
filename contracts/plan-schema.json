@@ -1,0 +1,260 @@
+{
+  "$defs": {
+    "Attachment": {
+      "additionalProperties": false,
+      "description": "Metadata lampiran saja; isi lampiran tidak pernah dikirim.",
+      "properties": {
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "type": {
+          "description": "MIME type.",
+          "title": "Type",
+          "type": "string"
+        },
+        "size": {
+          "description": "Ukuran dalam byte.",
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "filename",
+        "type",
+        "size"
+      ],
+      "title": "Attachment",
+      "type": "object"
+    },
+    "Draft": {
+      "additionalProperties": false,
+      "properties": {
+        "to": {
+          "description": "Prompt persetujuan Fase 2 menampilkan penerima sebenarnya; UI harus menampilkan hal yang sama karena pengguna menyetujui draft untuk penerima itu. Berasal dari header thread, bukan dari LLM.",
+          "title": "To",
+          "type": "string"
+        },
+        "subject": {
+          "description": "Prompt persetujuan Fase 2 menampilkan penerima sebenarnya; UI harus menampilkan hal yang sama karena pengguna menyetujui draft untuk penerima itu. Berasal dari header thread, bukan dari LLM.",
+          "title": "Subject",
+          "type": "string"
+        },
+        "body": {
+          "description": "Isi draft setelah restore(); di plan lama bernama draft_body.",
+          "title": "Body",
+          "type": "string"
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ],
+      "title": "Draft",
+      "type": "object"
+    },
+    "PlanItem": {
+      "additionalProperties": false,
+      "description": "Satu item rencana untuk Laravel.\n\nPemetaan dari `InboxState.plan` (app.contracts.PlanItem):\n- `InboxState.plan.draft_body` -> `draft.body`\n- `InboxState.plan.thread_id` tetap `thread_id`\n- `category`/`priority` diubah ke huruf kecil\n- `action`: keep -> label_only, archive -> archive, trash -> trash;\n  item dengan draft (dan bukan trash) -> draft_reply\n- item archive + draft -> action draft_reply dengan also_archive = True",
+      "properties": {
+        "item_id": {
+          "description": "ID stabil per plan_version; dipakai Laravel untuk keputusan dan sebagai kunci idempotensi eksekusi.",
+          "pattern": "^i_\\d{2,}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        },
+        "thread": {
+          "$ref": "#/$defs/ThreadInfo",
+          "description": "Laravel butuh subjek dan pengirim untuk menampilkan baris dan riwayat; di plan lama hanya ada thread_id, sedangkan Laravel tidak boleh memegang token Gmail untuk mencarinya sendiri."
+        },
+        "category": {
+          "enum": [
+            "akademik",
+            "tugas",
+            "pengumuman",
+            "pribadi",
+            "promosi",
+            "spam"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "priority": {
+          "enum": [
+            "mendesak",
+            "normal",
+            "nanti"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "label_only",
+            "archive",
+            "draft_reply",
+            "trash"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "also_archive": {
+          "default": false,
+          "description": "Plan lama bisa berisi arsip dan draf sekaligus, sedangkan action hanya satu nilai; tanpa field ini niat arsip hilang dan pengguna tidak melihat seluruh aksi yang ia setujui. Hanya boleh true bila action == 'draft_reply'.",
+          "title": "Also Archive",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "tinggi",
+                "sedang",
+                "rendah"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keyakinan model terhadap kategori dan aksi (tinggi/sedang/rendah), untuk menyorot baris yang meragukan di UI. Tiga tingkat, bukan angka: skor angka dari LLM memberi presisi palsu, sedangkan tiga tingkat jujur soal ketidakpastian. Bukan gerbang keamanan: tidak mengubah keputusan bawaan, requires_confirmation, atau melewati review.",
+          "title": "Confidence"
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Draft"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wajib ada jika dan hanya jika action == 'draft_reply'."
+        },
+        "warnings": {
+          "description": "Peringatan wajib Fase 2 dibuat terstruktur supaya UI bisa menonjolkannya tanpa mengurai teks. Ditambah UNRESOLVED_PLACEHOLDER untuk placeholder yang gagal dipulihkan.",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "requires_confirmation": {
+          "description": "Trash berisiko tinggi dan wajib konfirmasi per item; ditentukan di Python agar tidak bergantung pada UI.",
+          "title": "Requires Confirmation",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "thread_id",
+        "thread",
+        "category",
+        "priority",
+        "action",
+        "reason",
+        "requires_confirmation"
+      ],
+      "title": "PlanItem",
+      "type": "object"
+    },
+    "ThreadInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "from_name": {
+          "title": "From Name",
+          "type": "string"
+        },
+        "from_domain": {
+          "title": "From Domain",
+          "type": "string"
+        },
+        "date": {
+          "description": "ISO 8601.",
+          "title": "Date",
+          "type": "string"
+        },
+        "attachments": {
+          "items": {
+            "$ref": "#/$defs/Attachment"
+          },
+          "title": "Attachments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "subject",
+        "from_name",
+        "from_domain",
+        "date"
+      ],
+      "title": "ThreadInfo",
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "REPLY_TO_DOMAIN_MISMATCH",
+            "NEW_RECIPIENT",
+            "CROSS_THREAD_DATA",
+            "UNRESOLVED_PLACEHOLDER"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "description": "Teks untuk pengguna; tidak memuat isi placeholder.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Warning",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "plan_version": {
+      "description": "Mencegah persetujuan dari tampilan yang sudah usang.",
+      "minimum": 1,
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PlanItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_version",
+    "items"
+  ],
+  "title": "PlanSnapshot",
+  "type": "object"
+}

@@ -13,6 +13,7 @@ Desain:
 """
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass, field
 
 from app.contracts import LLMResponse, LLMUnavailableError, LLMOutputError, Usage
@@ -220,6 +221,14 @@ def make_multi_tool_response(
 # DatasetLLM — LLM palsu untuk demo offline (LLM_BACKEND=mock)
 # ══════════════════════════════════════════════════════════════════
 
+def mock_confidence(thread_id: str) -> str:
+    """Level confidence deterministik per thread (crc32, bukan hash() yang diacak per proses),
+    supaya ketiga level muncul pada data mock. Tidak mencerminkan kualitas klasifikasi."""
+    from app.contracts import CONFIDENCE_LEVELS
+
+    return CONFIDENCE_LEVELS[zlib.crc32(thread_id.encode("utf-8")) % len(CONFIDENCE_LEVELS)]
+
+
 _DRAFT_TEMPLATES = {
     "id": "Terima kasih atas emailnya. Saya sudah menerima pesan ini dan akan segera menindaklanjuti.",
     "en": "Thank you for your email. I have received it and will follow up shortly.",
@@ -272,4 +281,5 @@ class DatasetLLM:
             "summary": subject.group(1) if subject else row.id,
             "category": exp.category, "priority": exp.priority, "action": exp.action,
             "needs_reply": exp.needs_reply, "reason": "jawaban mock dari dataset",
+            "confidence": mock_confidence(row.id),
         }, model="dataset-llm", prompt_chars=prompt_chars)

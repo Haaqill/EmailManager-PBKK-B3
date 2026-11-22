@@ -106,8 +106,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     llm = make_eval_llm(args.backend, args.dataset)
     try:
         result = evaluate(llm, args.dataset, args.runs, args.ids)
-    except LLMUnavailableError:
-        print("LLM tidak tersedia; evaluasi dihentikan.", file=sys.stderr)
+    except LLMUnavailableError as exc:
+        # Pesan transport hanya berisi metadata (status, jenis galat), bukan isi prompt.
+        print(f"LLM tidak tersedia; evaluasi dihentikan. ({exc})", file=sys.stderr)
         return 1
     result["backend"] = args.backend
     result["model"] = _model_name(llm)

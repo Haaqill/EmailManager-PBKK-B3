@@ -82,7 +82,7 @@ Nomor fase mengikuti penamaan di kode dan komentar agen.
 | UI review Streamlit | Selesai | Tetap dipertahankan sebagai alat pengembangan; UI pengguna adalah Laravel. |
 | Status batch setelah agen restart | Belum | `MemorySaver` (memori proses): batch hilang tanpa jejak bila agen di-restart. Kontrak 6e: batch yang belum selesai harus dilaporkan `failed`, jadi registri batch perlu disimpan persisten. |
 | Aksi Sampah (`trash_thread`) | Belum | Tool belum ada ("setelah MVP"); `execute` mencatat Sampah sebagai gagal `NOT_ALLOWED`, padahal UI dan kontrak sudah mendukungnya. |
-| Token Gmail per user | Belum | Keyring memakai satu entri tetap (`KEYRING_USER` di `app/gmail/auth.py`), jadi masih satu akun per instalasi. |
+| Token Gmail per user | Selesai | Keyring memakai entri `oauth-token:<user_id>`; CLI memakai ID bawaan `dev`. |
 | Evaluasi klasifikasi (`eval/`) | Selesai | Lihat bagian 5. |
 | Run terjadwal (Fase 3), embedding (Fase 4), metrik kebocoran PII (Fase 5) | Belum / sebagian | Disebut di kode sebagai fase berikutnya; embedding opsional dan belum tersedia. |
 | Layanan HTTP (FastAPI) untuk Laravel | Belum | Endpoint di `docs/contract-laravel-python.md` bagian 5 dan 6 masih usulan. |

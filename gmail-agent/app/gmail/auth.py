@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
+import re
 import sys
 
 import keyring
@@ -36,7 +37,9 @@ CLIENT_SECRET_FILE = Path(__file__).resolve().parents[2] / "credentials.json"
 # in the authorization request is therefore http://localhost:<free-port>/.
 OAUTH_REDIRECT_HOST = "localhost"
 KEYRING_SERVICE = "gmail-inbox-manager"
-KEYRING_USER = "oauth-token"
+KEYRING_USER_PREFIX = "oauth-token"
+DEFAULT_USER_ID = "dev"
+_USER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 log = logging.getLogger("auth")
 
@@ -51,8 +54,14 @@ class OAuthConfigurationError(RuntimeError):
 
 # ---------- penyimpanan token (keyring) ----------
 
-def _load() -> Credentials | None:
-    raw = keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
+def keyring_username(user_id: str) -> str:
+    if not isinstance(user_id, str) or not _USER_ID_PATTERN.fullmatch(user_id):
+        raise ValueError("ID pengguna tidak valid.")
+    return f"{KEYRING_USER_PREFIX}:{user_id}"
+
+
+def _load(user_id: str = DEFAULT_USER_ID) -> Credentials | None:
+    raw = keyring.get_password(KEYRING_SERVICE, keyring_username(user_id))
     if not raw:
         return None
     try:
@@ -62,13 +71,13 @@ def _load() -> Credentials | None:
         return None
 
 
-def _save(creds: Credentials) -> None:
-    keyring.set_password(KEYRING_SERVICE, KEYRING_USER, creds.to_json())
+def _save(creds: Credentials, user_id: str = DEFAULT_USER_ID) -> None:
+    keyring.set_password(KEYRING_SERVICE, keyring_username(user_id), creds.to_json())
 
 
-def _delete() -> None:
+def _delete(user_id: str = DEFAULT_USER_ID) -> None:
     try:
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
+        keyring.delete_password(KEYRING_SERVICE, keyring_username(user_id))
     except keyring.errors.PasswordDeleteError:
         pass
 
@@ -124,14 +133,16 @@ def _login() -> Credentials:
     )
 
 
-def get_credentials(interactive: bool = True) -> Credentials:
+def get_credentials(
+    interactive: bool = True, user_id: str = DEFAULT_USER_ID
+) -> Credentials:
     """Kembalikan kredensial yang valid.
 
     interactive=False dipakai untuk run terjadwal (Fase 3): tidak membuka
     browser, tapi melempar ReauthRequired agar bisa dilaporkan ke pengguna.
     """
     try:
-        creds = _load()
+        creds = _load(user_id)
     except keyring.errors.NoKeyringError:
         raise ReauthRequired(
             "Tidak ada backend keyring lokal. Aktifkan keyring sistem sebelum login Gmail."
@@ -144,7 +155,7 @@ def get_credentials(interactive: bool = True) -> Credentials:
         try:
             creds.refresh(Request())
             try:
-                _save(creds)
+                _save(creds, user_id)
             except keyring.errors.NoKeyringError:
                 raise ReauthRequired(
                     "Tidak ada backend keyring lokal untuk menyimpan sesi Gmail."
@@ -153,7 +164,7 @@ def get_credentials(interactive: bool = True) -> Credentials:
         except RefreshError as e:
             # Umumnya invalid_grant: token Testing lewat 7 hari, atau dicabut.
             log.warning("Refresh gagal (%s); perlu login ulang.", type(e).__name__)
-            _delete()
+            _delete(user_id)
 
     if not interactive:
         raise ReauthRequired("Perlu login ulang: jalankan `python -m app.gmail.auth login`.")
@@ -168,7 +179,7 @@ def get_credentials(interactive: bool = True) -> Credentials:
         ) from None
     
     try:
-        _save(creds)
+        _save(creds, user_id)
     except keyring.errors.NoKeyringError:
         raise ReauthRequired(
             "Tidak ada backend keyring lokal untuk menyimpan sesi Gmail."
@@ -176,8 +187,8 @@ def get_credentials(interactive: bool = True) -> Credentials:
     return creds
 
 
-def revoke_and_logout() -> None:
-    creds = _load()
+def revoke_and_logout(user_id: str = DEFAULT_USER_ID) -> None:
+    creds = _load(user_id)
     if creds:
         token = creds.refresh_token or creds.token
         try:
@@ -189,15 +200,15 @@ def revoke_and_logout() -> None:
             )
         except requests.RequestException:
             log.warning("Gagal menghubungi endpoint revoke; token tetap dihapus lokal.")
-    _delete()
+    _delete(user_id)
 
 
 # ---------- CLI ----------
 
-def _check() -> None:
+def _check(user_id: str = DEFAULT_USER_ID) -> None:
     from googleapiclient.discovery import build
 
-    creds = get_credentials(interactive=False)
+    creds = get_credentials(interactive=False, user_id=user_id)
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     profile = service.users().getProfile(userId="me").execute()
     print(f"OK. Gmail OAuth aktif | total pesan: {profile['messagesTotal']}")
@@ -210,16 +221,17 @@ def main() -> int:
     logging.getLogger("google_auth_oauthlib.flow").setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(description="OAuth Gmail Inbox Manager")
     parser.add_argument("command", choices=["login", "check", "logout"])
+    parser.add_argument("--user", default=DEFAULT_USER_ID)
     args = parser.parse_args()
 
     try:
         if args.command == "login":
-            get_credentials(interactive=True)
+            get_credentials(interactive=True, user_id=args.user)
             print("Token tersimpan di keyring.")
         elif args.command == "check":
-            _check()
+            _check(user_id=args.user)
         elif args.command == "logout":
-            revoke_and_logout()
+            revoke_and_logout(user_id=args.user)
             print("Token dicabut dan dihapus dari keyring.")
     except ReauthRequired as e:
         print(e, file=sys.stderr)

@@ -11,13 +11,14 @@ import pytest
 from googleapiclient.errors import HttpError
 from tenacity import wait_none
 
-import app.gmail.client as gmail_client
 from app.contracts import FatalToolError, ToolContext
+from app.gmail.auth import DEFAULT_USER_ID
 from app.gmail.client import GmailAPIClient
 from app.gmail.mock_client import MockGmailAPIClient
 from app.gmail.schemas import FetchThreadArgs, ScanEmailsArgs
 from app.gmail.tools import fetch_thread, scan_emails
 from app.privacy.redact import pii_map_for, release_pii_map
+import app.gmail.client as gmail_client
 
 
 def _http_error(status: int) -> HttpError:
@@ -483,10 +484,15 @@ def test_api_client_maps_404_to_lookup_error():
 
 def test_api_client_loads_credentials_and_builds_gmail_service(monkeypatch):
     calls = []
+    credential_calls = []
     credentials = object()
     service = _FakeService(_api_thread())
 
-    monkeypatch.setattr(gmail_client, "get_credentials", lambda **kwargs: credentials)
+    monkeypatch.setattr(
+        gmail_client,
+        "get_credentials",
+        lambda **kwargs: credential_calls.append(kwargs) or credentials,
+    )
     monkeypatch.setattr(
         gmail_client,
         "build",
@@ -502,6 +508,23 @@ def test_api_client_loads_credentials_and_builds_gmail_service(monkeypatch):
             {"credentials": credentials, "cache_discovery": False},
         )
     ]
+    assert credential_calls == [{"interactive": True, "user_id": DEFAULT_USER_ID}]
+
+
+def test_api_client_meneruskan_id_pengguna_ke_kredensial(monkeypatch):
+    credential_calls = []
+    monkeypatch.setattr(
+        gmail_client,
+        "get_credentials",
+        lambda **kwargs: credential_calls.append(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        gmail_client, "build", lambda *args, **kwargs: _FakeService(_api_thread())
+    )
+
+    GmailAPIClient(user_id="alice")
+
+    assert credential_calls == [{"interactive": True, "user_id": "alice"}]
 
 
 def test_api_client_turns_reauth_requirement_into_fatal_error(monkeypatch):

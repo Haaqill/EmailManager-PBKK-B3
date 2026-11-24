@@ -18,7 +18,7 @@ from tenacity import (
 )
 
 from app.contracts import FatalToolError
-from app.gmail.auth import ReauthRequired, get_credentials
+from app.gmail.auth import DEFAULT_USER_ID, ReauthRequired, get_credentials
 from app.gmail.schemas import (
     GmailArchiveResult,
     GmailAttachment,
@@ -39,7 +39,7 @@ class GmailAPIClient:
 
     def __init__(
         self, config: Any | None = None, *, service: Any | None = None,
-        interactive: bool = True,
+        interactive: bool = True, user_id: str = DEFAULT_USER_ID,
     ) -> None:
         del config
         if service is not None:
@@ -47,7 +47,7 @@ class GmailAPIClient:
             return
 
         try:
-            credentials = get_credentials(interactive=interactive)
+            credentials = get_credentials(interactive=interactive, user_id=user_id)
         except ReauthRequired as exc:
             raise FatalToolError(str(exc)) from exc
         try:

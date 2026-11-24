@@ -50,10 +50,14 @@ def test_desktop_flow_uses_dynamic_localhost_redirect(tmp_path, monkeypatch):
 
 def test_get_credentials_reuses_valid_local_credential(monkeypatch):
     creds = SimpleNamespace(valid=True)
-    monkeypatch.setattr(auth, "_load", lambda: creds)
+    calls = []
+    monkeypatch.setattr(
+        auth, "_load", lambda *args, **kwargs: calls.append((args, kwargs)) or creds
+    )
     monkeypatch.setattr(auth, "_login", lambda: pytest.fail("unexpected browser login"))
 
-    assert auth.get_credentials(interactive=False) is creds
+    assert auth.get_credentials(interactive=False, user_id="alice") is creds
+    assert calls == [(("alice",), {})]
 
 
 def test_get_credentials_expired_token_refreshes_and_persists(monkeypatch):
@@ -67,16 +71,16 @@ def test_get_credentials_expired_token_refreshes_and_persists(monkeypatch):
 
     creds = Credentials()
     calls = []
-    monkeypatch.setattr(auth, "_load", lambda: creds)
+    monkeypatch.setattr(auth, "_load", lambda *args, **kwargs: creds)
     monkeypatch.setattr(auth, "Request", lambda: "request")
-    monkeypatch.setattr(auth, "_save", lambda value: calls.append(value))
+    monkeypatch.setattr(auth, "_save", lambda value, *args, **kwargs: calls.append(value))
 
     assert auth.get_credentials(interactive=False) is creds
     assert calls == [creds]
 
 
 def test_missing_credentials_require_explicit_login(monkeypatch):
-    monkeypatch.setattr(auth, "_load", lambda: None)
+    monkeypatch.setattr(auth, "_load", lambda *args, **kwargs: None)
     with pytest.raises(auth.ReauthRequired, match="login"):
         auth.get_credentials(interactive=False)
 
@@ -114,4 +118,114 @@ def test_gmail_backend_constructs_real_client_without_implicit_browser(monkeypat
         lambda **kwargs: seen.append(kwargs) or "gmail-client",
     )
     assert make_gmail_client() == "gmail-client"
-    assert seen == [{"interactive": False}]
+    assert make_gmail_client(user_id="alice") == "gmail-client"
+    assert seen == [
+        {"interactive": False, "user_id": "dev"},
+        {"interactive": False, "user_id": "alice"},
+    ]
+
+
+def test_token_disimpan_di_entri_keyring_yang_berbeda_per_pengguna(monkeypatch):
+    keyring = {}
+    monkeypatch.setattr(
+        auth.keyring, "get_password", lambda service, username: keyring.get(username)
+    )
+    monkeypatch.setattr(
+        auth.keyring,
+        "set_password",
+        lambda service, username, value: keyring.__setitem__(username, value),
+    )
+    monkeypatch.setattr(
+        auth.Credentials,
+        "from_authorized_user_info",
+        classmethod(lambda cls, info, scopes: info["token"]),
+    )
+
+    auth._save(SimpleNamespace(to_json=lambda: json.dumps({"token": "token-a"})), "alice")
+    auth._save(SimpleNamespace(to_json=lambda: json.dumps({"token": "token-b"})), "bob")
+
+    assert set(keyring) == {"oauth-token:alice", "oauth-token:bob"}
+    assert auth._load("alice") == "token-a"
+    assert auth._load("bob") == "token-b"
+
+
+def test_logout_pengguna_tidak_menghapus_token_pengguna_lain(monkeypatch):
+    keyring = {
+        "oauth-token:alice": json.dumps({"token": "token-a"}),
+        "oauth-token:bob": json.dumps({"token": "token-b"}),
+    }
+    monkeypatch.setattr(
+        auth.keyring, "get_password", lambda service, username: keyring.get(username)
+    )
+    monkeypatch.setattr(
+        auth.keyring,
+        "delete_password",
+        lambda service, username: keyring.pop(username),
+    )
+    monkeypatch.setattr(
+        auth.Credentials,
+        "from_authorized_user_info",
+        classmethod(
+            lambda cls, info, scopes: SimpleNamespace(
+                refresh_token=info["token"], token=info["token"]
+            )
+        ),
+    )
+    monkeypatch.setattr(auth.requests, "post", lambda *args, **kwargs: None)
+
+    auth.revoke_and_logout("alice")
+
+    assert "oauth-token:alice" not in keyring
+    assert keyring["oauth-token:bob"] == json.dumps({"token": "token-b"})
+
+
+@pytest.mark.parametrize("user_id", ["user name", "user/name", "user:name", "", "a" * 65])
+def test_id_pengguna_tidak_valid_ditolak_tanpa_membocorkan_nilai(user_id):
+    with pytest.raises(ValueError) as error:
+        auth.keyring_username(user_id)
+
+    assert str(error.value) == "ID pengguna tidak valid."
+    if user_id:
+        assert user_id not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("command", "handler"),
+    [
+        ("login", "get_credentials"),
+        ("check", "_check"),
+        ("logout", "revoke_and_logout"),
+    ],
+)
+def test_cli_meneruskan_user_yang_diberikan(monkeypatch, command, handler):
+    calls = []
+    monkeypatch.setattr(auth.sys, "argv", ["auth", command, "--user", "alice"])
+    monkeypatch.setattr(auth, "get_credentials", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth, "_check", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth, "revoke_and_logout", lambda **kwargs: calls.append(kwargs))
+
+    assert auth.main() == 0
+    assert calls == [
+        {"interactive": True, "user_id": "alice"}
+        if handler == "get_credentials"
+        else {"user_id": "alice"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("login", {"interactive": True, "user_id": "dev"}),
+        ("check", {"user_id": "dev"}),
+        ("logout", {"user_id": "dev"}),
+    ],
+)
+def test_cli_memakai_user_dev_bila_tidak_diberikan(monkeypatch, command, expected):
+    calls = []
+    monkeypatch.setattr(auth.sys, "argv", ["auth", command])
+    monkeypatch.setattr(auth, "get_credentials", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth, "_check", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth, "revoke_and_logout", lambda **kwargs: calls.append(kwargs))
+
+    assert auth.main() == 0
+    assert calls == [expected]

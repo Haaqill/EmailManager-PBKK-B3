@@ -36,6 +36,8 @@ Untuk menghubungkan akun uji:
 4. Pilih backend dengan `GMAIL_BACKEND=gmail` di `.env`, atau tambahkan `GMAIL_BACKEND = "gmail"` di bagian top-level `.streamlit/secrets.toml`. Prioritasnya environment proses, Streamlit secrets, `.env`, lalu default `mock`. Restart aplikasi setelah mengubah `.env`.
 5. Pilih **Login Gmail / perbarui sesi** di sidebar dan setujui scope tunggal `gmail.modify`. Google akan mengarahkan browser kembali ke server lokal sementara.
 
+Token disimpan terpisah di keyring untuk setiap ID pengguna; CLI `login`, `check`, dan `logout` menerima opsi `--user <id>` (default `dev`). ID harus terdiri dari 1–64 huruf ASCII, angka, `_`, atau `-`.
+
 Flow desktop ini mengirim redirect URI loopback dinamis: `http://localhost:<port-acak>/` (contoh: `http://localhost:53142/`, dengan trailing slash). Karena port dipilih OS pada setiap login, URI ini tidak didaftarkan sebagai URI web tetap. Di Google Cloud Console, pilih/ubah OAuth client menjadi **Desktop app**; bagian **Authorized redirect URIs** pada client Web tidak berlaku untuk flow ini. Jika Console yang sedang dibuka hanya menampilkan daftar URI web, itu tanda bahwa JSON yang diunduh adalah tipe client yang salah.
 
 `client_id`, `client_secret`, `redirect_uri`, `cookie_secret`, dan

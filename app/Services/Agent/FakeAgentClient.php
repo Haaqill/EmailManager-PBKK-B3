@@ -22,6 +22,10 @@ class FakeAgentClient implements AgentClient
 
     private const TTL_SECONDS = 86400;
 
+    private const GMAIL_LOGIN_DELAY_SECONDS = 2;
+
+    private const GMAIL_CONNECTION_SECONDS = 86400;
+
     private const STAGES = [
         BatchStatus::Queued,
         BatchStatus::Scanning,
@@ -72,7 +76,7 @@ class FakeAgentClient implements AgentClient
             return; // idempoten: executing/done tidak dieksekusi ulang
         }
         if ($this->status($state) !== BatchStatus::AwaitingReview) {
-            throw new AgentUnavailable("Batch {$agentBatchId} belum atau tidak lagi menunggu review.");
+            throw new PlanVersionMismatch('Batch belum atau tidak lagi menunggu review.', agentCode: 'invalid_state');
         }
         if ($planVersion !== $state['plan_version']) {
             throw PlanVersionMismatch::for($agentBatchId, $planVersion, $state['plan_version']);
@@ -97,12 +101,35 @@ class FakeAgentClient implements AgentClient
     public function cancel(int $userId, string $agentBatchId): void
     {
         $state = $this->state($userId, $agentBatchId);
-        if ($state['executed_at'] !== null || $state['cancelled']) {
+        if ($state['cancelled']) {
             return;
+        }
+        if ($state['executed_at'] !== null) {
+            throw new AgentUnavailable('Batch ini tidak bisa dibatalkan.', agentCode: 'invalid_state');
         }
         $state['reviewed'] = $this->status($state) === BatchStatus::AwaitingReview;
         $state['cancelled'] = true;
         $this->put($agentBatchId, $state);
+    }
+
+    public function getGmailStatus(int $userId): array
+    {
+        $connectedAt = Cache::get($this->gmailAuthKey($userId));
+        $now = now()->getTimestamp();
+
+        return ['status' => match (true) {
+            $connectedAt === null || $now < $connectedAt => 'not_connected',
+            $now >= $connectedAt + self::GMAIL_CONNECTION_SECONDS => 'expired',
+            default => 'connected',
+        }];
+    }
+
+    public function startGmailLogin(int $userId): array
+    {
+        // Simulasikan callback OAuth dan pertahankan status expired sampai login ulang.
+        Cache::forever($this->gmailAuthKey($userId), now()->getTimestamp() + self::GMAIL_LOGIN_DELAY_SECONDS);
+
+        return ['auth_url' => 'https://gmail-auth.invalid/authorize'];
     }
 
     /**
@@ -203,7 +230,7 @@ class FakeAgentClient implements AgentClient
     {
         $state = Cache::get($this->key($agentBatchId));
         if (! is_array($state) || $state['user_id'] !== $userId) {
-            throw new AgentUnavailable("Batch {$agentBatchId} tidak dikenal agen tiruan.");
+            throw new AgentUnavailable('Batch tidak dikenal agen tiruan.', agentCode: 'batch_not_found');
         }
 
         return $state;
@@ -220,5 +247,10 @@ class FakeAgentClient implements AgentClient
     private function key(string $agentBatchId): string
     {
         return 'agent-fake:' . $agentBatchId;
+    }
+
+    private function gmailAuthKey(int $userId): string
+    {
+        return 'agent-fake-gmail-auth:' . $userId;
     }
 }

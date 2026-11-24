@@ -80,6 +80,18 @@ class PruneBatchReviewDataTest extends TestCase
         $this->assertSame(BatchStatus::Executing, $batch->refresh()->status);
     }
 
+    public function test_pending_operation_protects_review_data_from_prune(): void
+    {
+        $batch = $this->syncedBatch('b_menunggu', ageDays: 30);
+        $batch->update(['pending_operation' => ['type' => 'execute', 'id' => 'op-1']]);
+        Batch::query()->whereKey($batch->id)->update(['updated_at' => now()->subDays(30)]);
+
+        $this->artisan('batches:prune-review-data')->assertSuccessful();
+
+        $this->assertSame(BatchStatus::AwaitingReview, $batch->refresh()->status);
+        $this->assertNotNull($batch->items()->firstOrFail()->review_data);
+    }
+
     public function test_invalid_days_option_fails(): void
     {
         $this->artisan('batches:prune-review-data', ['--days' => 'abc'])->assertExitCode(2);

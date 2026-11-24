@@ -42,4 +42,18 @@ interface AgentClient
      * @throws AgentUnavailable
      */
     public function cancel(int $userId, string $agentBatchId): void;
+
+    /**
+     * @return array{status: 'connected'|'not_connected'|'expired'}
+     *
+     * @throws AgentUnavailable
+     */
+    public function getGmailStatus(int $userId): array;
+
+    /**
+     * @return array{auth_url: string}
+     *
+     * @throws AgentUnavailable
+     */
+    public function startGmailLogin(int $userId): array;
 }

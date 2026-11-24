@@ -7,6 +7,7 @@ use App\Models\ChatMessage;
 use App\Models\User;
 use App\Services\Agent\AgentClient;
 use App\Services\Agent\FakeAgentClient;
+use App\Services\Agent\HttpAgentClient;
 use App\Services\Llm\LlmClient;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -31,8 +32,13 @@ class AppServiceProvider extends ServiceProvider
 
             return match ($driver) {
                 'fake' => $app->make(FakeAgentClient::class),
-                'http' => throw new LogicException('Driver agen "http" belum diimplementasikan. Pakai AGENT_DRIVER=fake.'),
-                default => throw new LogicException("Driver agen \"{$driver}\" tidak dikenal. Pilihan: fake."),
+                'http' => new HttpAgentClient(
+                    $app->make(HttpFactory::class),
+                    (string) config('agent.url'),
+                    (string) config('agent.token'),
+                    (int) config('agent.timeout', 10),
+                ),
+                default => throw new LogicException('Driver agen tidak dikenal. Pilihan: fake, http.'),
             };
         });
     }

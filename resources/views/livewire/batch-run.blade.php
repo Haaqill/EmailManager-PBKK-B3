@@ -2,6 +2,10 @@
 @php
     $focus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
     $status = $batch->status;
+    $operation = $batch->pending_operation['type'] ?? null;
+    $agentError = $batch->agent_error;
+    $planNotice = ($agentError['code'] ?? null) === 'plan_changed' ? $agentError['message'] : null;
+    $displayError = $errorMessage ?? ($planNotice === null ? ($agentError['message'] ?? null) : null);
     $ended = in_array($status, [BatchStatus::Failed, BatchStatus::Cancelled, BatchStatus::Expired], true);
 @endphp
 
@@ -15,11 +19,11 @@
         <span wire:loading wire:target="refreshStatus" aria-hidden="true" class="hidden text-slate-500">· memperbarui…</span>
     </p>
 
-    @if ($errorMessage)
+    @if ($displayError)
         <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <span class="flex-1">{{ $errorMessage }}</span>
-            @if ($errorMessage === \App\Livewire\BatchRun::ERROR_UNAVAILABLE)
-                <button type="button" wire:click="refreshStatus" wire:loading.attr="disabled"
+            <span class="flex-1">{{ $displayError }}</span>
+            @if ($polling && $agentError)
+                <button type="button" wire:click="retrySync" wire:loading.attr="disabled"
                         class="min-h-10 rounded-md bg-white px-3 text-sm font-medium text-red-800 ring-1 ring-inset ring-red-300 hover:bg-red-100 disabled:opacity-50 {{ $focus }}">
                     Coba lagi
                 </button>
@@ -27,21 +31,23 @@
         </div>
     @endif
 
-    @if ($notice)
-        <p role="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{{ $notice }}</p>
+    @if ($notice || $planNotice)
+        <p role="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{{ $notice ?? $planNotice }}</p>
     @endif
 
     @if ($polling)
         {{-- Berjalan / mengeksekusi --}}
         <section class="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
             <p class="text-sm text-slate-600">
-                @if ($status === BatchStatus::Executing)
+                @if ($operation === 'cancel')
+                    Menunggu pembatalan batch…
+                @elseif ($status === BatchStatus::Executing || $operation === 'execute')
                     Menjalankan aksi yang Anda setujui…
                 @else
                     Agen sedang memproses email. Halaman ini diperbarui otomatis.
                 @endif
             </p>
-            @if ($status !== BatchStatus::Executing)
+            @if ($status !== BatchStatus::Executing && $operation === null && ! $batch->isReconciling())
                 <button type="button" wire:click="cancel" wire:confirm="Batalkan batch ini?" wire:loading.attr="disabled"
                         class="mt-4 min-h-10 rounded-md bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-50 {{ $focus }}">
                     Batalkan
@@ -63,7 +69,7 @@
             </h2>
             <p class="mt-1 text-sm text-slate-600">
                 @switch($status)
-                    @case(BatchStatus::Failed) Agen tidak bisa menyelesaikan batch ini. Tidak ada aksi yang dijalankan. @break
+                    @case(BatchStatus::Failed) Hasil yang sudah diketahui ditampilkan di laporan. @break
                     @case(BatchStatus::Cancelled) Batch dibatalkan sebelum ada aksi yang dijalankan. @break
                     @default Batch tidak ditinjau terlalu lama, jadi rencananya dihapus. Tidak ada aksi yang dijalankan.
                 @endswitch
@@ -73,5 +79,8 @@
                 Mulai ulang
             </a>
         </section>
+        @if ($status === BatchStatus::Failed && $items->whereNotNull('result_status')->isNotEmpty())
+            @include('batch.partials.report')
+        @endif
     @endif
 </div>

@@ -3,10 +3,10 @@
 namespace App\Livewire;
 
 use App\Enums\BatchStatus;
+use App\Jobs\SyncBatchStatusJob;
 use App\Models\Batch;
 use App\Services\Agent\AgentClient;
 use App\Services\Agent\AgentUnavailable;
-use App\Services\Agent\BatchSyncService;
 use App\Services\Agent\InvalidAgentPayload;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
@@ -16,7 +16,6 @@ use Livewire\Component;
 
 /**
  * Halaman /batch: mulai batch baru dan daftar batch terakhir milik pengguna.
- * Baris lokal Batch dibuat oleh BatchSyncService dari payload agen, bukan di sini.
  */
 class BatchIndex extends Component
 {
@@ -26,13 +25,11 @@ class BatchIndex extends Component
 
     public const RATE_WINDOW_SECONDS = 60;
 
-    public const ERROR_UNAVAILABLE = 'Agen sedang tidak bisa dihubungi. Silakan coba lagi.';
-
     public int $threadCount = 10;
 
     public ?string $errorMessage = null;
 
-    public function start(AgentClient $agent, BatchSyncService $sync): void
+    public function start(AgentClient $agent): void
     {
         $max = (int) config('agent.max_threads', 10);
         $this->validate(
@@ -55,7 +52,7 @@ class BatchIndex extends Component
         }
 
         // Kunci per pengguna: dua klik cepat tidak boleh memulai dua batch.
-        $batch = Cache::lock('batch-start-lock:' . $userId, 10)->get(function () use ($agent, $sync, $userId, $key) {
+        $batch = Cache::lock('batch-start-lock:' . $userId, 30)->get(function () use ($agent, $userId, $key) {
             if ($this->activeBatch() !== null) {
                 $this->errorMessage = 'Masih ada batch yang berjalan. Selesaikan atau batalkan dulu.';
 
@@ -63,21 +60,27 @@ class BatchIndex extends Component
             }
             RateLimiter::hit($key, self::RATE_WINDOW_SECONDS);
 
+            $filters = ['max_results' => $this->threadCount];
             try {
-                $id = $agent->startBatch($userId, ['max_results' => $this->threadCount]);
-
-                return $sync->sync($userId, $agent->getBatch($userId, $id));
-            } catch (AgentUnavailable|InvalidAgentPayload $e) {
-                report($e);
-                $this->errorMessage = self::ERROR_UNAVAILABLE;
+                $id = $agent->startBatch($userId, $filters);
+            } catch (AgentUnavailable|InvalidAgentPayload $exception) {
+                $code = $exception instanceof AgentUnavailable ? $exception->safeCode() : 'invalid_agent_payload';
+                $this->errorMessage = Batch::agentError($code)['message'];
 
                 return null;
             }
+
+            return auth()->user()->batches()->create([
+                'agent_batch_id' => $id,
+                'status' => BatchStatus::Queued,
+                'filters' => $filters,
+            ]);
         });
 
         if ($batch === false) {
             $this->errorMessage = 'Permintaan sebelumnya masih diproses.';
         } elseif ($batch instanceof Batch) {
+            SyncBatchStatusJob::dispatch($batch->id);
             $this->redirectRoute('batch.show', $batch);
         }
     }

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Enums\BatchStatus;
 use App\Enums\PlanDecision;
+use App\Jobs\RunBatchOperationJob;
+use App\Jobs\SyncBatchStatusJob;
 use App\Livewire\BatchIndex;
 use App\Livewire\BatchRun;
 use App\Models\Batch;
@@ -14,6 +16,8 @@ use App\Services\Agent\BatchSyncService;
 use App\Services\Agent\FakeAgentClient;
 use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use RuntimeException;
 use Tests\TestCase;
@@ -23,6 +27,15 @@ class RecordingAgentClient extends FakeAgentClient
 {
     /** @var list<list<array<string, mixed>>> */
     public array $sent = [];
+
+    public int $reads = 0;
+
+    public function getBatch(int $userId, string $agentBatchId): array
+    {
+        $this->reads++;
+
+        return parent::getBatch($userId, $agentBatchId);
+    }
 
     public function execute(int $userId, string $agentBatchId, int $planVersion, array $decisions): void
     {
@@ -59,6 +72,12 @@ class BatchPageTest extends TestCase
         return BatchPlanItem::query()->where('batch_id', $batch->id)->where('item_id', $itemId)->firstOrFail();
     }
 
+    private function runOperation(Batch $batch): void
+    {
+        (new RunBatchOperationJob($batch->id, $batch->fresh()->pending_operation['id']))
+            ->handle($this->agent, app(BatchSyncService::class));
+    }
+
     // ------------------------------------------------------------- akses
 
     public function test_tamu_diarahkan_ke_login(): void
@@ -80,8 +99,9 @@ class BatchPageTest extends TestCase
 
     // ------------------------------------------------------------- mulai batch
 
-    public function test_mulai_batch_membuat_baris_lewat_sync_dan_mengalihkan(): void
+    public function test_mulai_batch_menyimpan_id_dan_mengantrekan_sinkronisasi(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
 
         $component = Livewire::actingAs($user)->test(BatchIndex::class)
@@ -94,6 +114,8 @@ class BatchPageTest extends TestCase
         $this->assertSame(BatchStatus::Queued, $batch->status);
         $this->assertSame(['max_results' => 5], $batch->filters);
         $this->assertStringStartsWith('b_demo_', $batch->agent_batch_id);
+        $this->assertSame(0, $this->agent->reads);
+        Queue::assertPushed(SyncBatchStatusJob::class, fn (SyncBatchStatusJob $job) => $job->batchId === $batch->id);
     }
 
     public function test_mulai_kedua_saat_ada_batch_aktif_ditolak(): void
@@ -140,8 +162,10 @@ class BatchPageTest extends TestCase
 
     // ------------------------------------------------------------- berjalan
 
-    public function test_polling_memajukan_status_dan_berhenti_saat_review(): void
+    public function test_polling_hanya_membaca_database_dan_berhenti_saat_review(): void
     {
+        Queue::fake();
+        Http::preventStrayRequests();
         $user = User::factory()->create();
         $id = $this->agent->startBatch($user->id, ['max_results' => 10]);
         $batch = app(BatchSyncService::class)->sync($user->id, $this->agent->getBatch($user->id, $id));
@@ -152,9 +176,18 @@ class BatchPageTest extends TestCase
             ->assertSee('Batalkan');
 
         $this->travel(10)->seconds();
+        $reads = $this->agent->reads;
+        $component->call('refreshStatus')->assertSeeHtml('wire:poll.2s');
+        $this->assertSame($reads, $this->agent->reads);
+        $this->assertSame(BatchStatus::Queued, $batch->fresh()->status);
+        Http::assertNothingSent();
+        Queue::assertNothingPushed();
+
+        (new SyncBatchStatusJob($batch->id))->handle($this->agent, app(BatchSyncService::class));
         $component->call('refreshStatus')
             ->assertDontSeeHtml('wire:poll.2s')
             ->assertSee('Tinjau rencana');
+        $this->assertSame($reads + 1, $this->agent->reads);
         $this->assertSame(BatchStatus::AwaitingReview, $batch->fresh()->status);
         $this->assertSame('Halo, aku bisa ikut kerja kelompok hari Kamis setelah kelas siang. Sampai ketemu di perpustakaan.', $component->get('drafts')['i_04']);
     }
@@ -284,6 +317,7 @@ class BatchPageTest extends TestCase
 
     public function test_eksekusi_hanya_mengirim_keputusan_eksplisit(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $batch = $this->reviewBatch($user);
 
@@ -296,6 +330,9 @@ class BatchPageTest extends TestCase
             ->call('execute')
             ->assertSee('Menjalankan aksi yang Anda setujui');
 
+        $this->assertSame([], $this->agent->sent);
+        Queue::assertPushed(RunBatchOperationJob::class, fn (RunBatchOperationJob $job) => $job->batchId === $batch->id);
+        $this->runOperation($batch);
         $this->assertCount(1, $this->agent->sent);
         $sent = collect($this->agent->sent[0])->keyBy('item_id');
         $this->assertEqualsCanonicalizing(['i_02', 'i_03', 'i_04', 'i_07'], $sent->keys()->all());
@@ -320,6 +357,7 @@ class BatchPageTest extends TestCase
 
     public function test_klik_ganda_tidak_mengeksekusi_ulang(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $batch = $this->reviewBatch($user);
 
@@ -327,14 +365,19 @@ class BatchPageTest extends TestCase
             ->call('setDecision', 'i_02', 'approve')
             ->call('execute')
             ->call('execute')
-            ->assertSet('errorMessage', 'Batch ini tidak lagi menunggu review.');
+            ->assertSet('errorMessage', 'Perintah batch masih diproses.')
+            ->call('cancel')
+            ->assertSet('errorMessage', 'Perintah batch masih diproses.');
 
+        Queue::assertPushed(RunBatchOperationJob::class, 1);
+        $this->runOperation($batch);
         $this->assertCount(1, $this->agent->sent);
         $this->assertSame(1, $this->agent->executions($user->id, $batch->agent_batch_id));
     }
 
     public function test_plan_version_berubah_tidak_mengeksekusi_dan_mereset_keputusan(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $batch = $this->reviewBatch($user);
 
@@ -343,9 +386,9 @@ class BatchPageTest extends TestCase
             ->set('drafts.i_04', 'Draf versi saya.');
         $this->agent->revisePlan($user->id, $batch->agent_batch_id);
 
-        $component->call('execute')
-            ->assertSet('notice', BatchRun::NOTICE_PLAN_CHANGED)
-            ->assertSee('Rencana diperbarui; keputusan direset.');
+        $component->call('execute');
+        $this->runOperation($batch);
+        $component->call('refreshStatus')->assertSee('Rencana diperbarui; keputusan direset.');
 
         $this->assertSame([], $this->agent->sent);
         $this->assertSame(2, $batch->fresh()->plan_version);
@@ -354,10 +397,27 @@ class BatchPageTest extends TestCase
         $this->assertStringStartsWith('Halo, aku bisa ikut', $component->get('drafts')['i_04']);
     }
 
+    public function test_tab_review_versi_lama_tidak_bisa_mengubah_atau_mengeksekusi_rencana_baru(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $batch = $this->reviewBatch($user);
+        $stale = Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id]);
+        $this->agent->revisePlan($user->id, $batch->agent_batch_id);
+        app(BatchSyncService::class)->pull($this->agent, $batch);
+
+        $stale->call('setDecision', 'i_02', 'approve')
+            ->assertSee('Rencana diperbarui; keputusan direset.');
+        $this->assertSame(PlanDecision::Pending, $this->item($batch, 'i_02')->decision);
+        $stale->call('execute')->assertSee('Belum ada item yang disetujui.');
+        Queue::assertNothingPushed();
+    }
+
     // ------------------------------------------------------------- laporan
 
     public function test_setelah_done_data_sementara_kosong_dan_laporan_dari_kolom_permanen(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $batch = $this->reviewBatch($user);
 
@@ -366,7 +426,9 @@ class BatchPageTest extends TestCase
             ->call('setDecision', 'i_04', 'approve')
             ->call('setDecision', 'i_03', 'reject')
             ->call('execute');
+        $this->runOperation($batch);
         $this->travel(2)->seconds();
+        (new SyncBatchStatusJob($batch->id))->handle($this->agent, app(BatchSyncService::class));
         $component->call('refreshStatus')
             ->assertSee('Laporan batch')
             ->assertSee('Isi email dan draf sudah dihapus dari aplikasi setelah batch selesai.');
@@ -419,12 +481,19 @@ class BatchPageTest extends TestCase
 
     public function test_pembatalan_mengubah_status_dan_membersihkan_data_sementara(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $batch = $this->reviewBatch($user);
         $this->item($batch, 'i_04')->update(['edited_draft_body' => 'Draf versi saya.']);
 
-        Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id])
+        $component = Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id])
             ->call('cancel')
+            ->assertSee('Menunggu pembatalan batch');
+        Queue::assertPushed(RunBatchOperationJob::class, fn (RunBatchOperationJob $job) => $job->batchId === $batch->id);
+        $this->assertSame(BatchStatus::AwaitingReview, $batch->fresh()->status);
+
+        $this->runOperation($batch);
+        $component->call('refreshStatus')
             ->assertSee('Batch dibatalkan')
             ->assertSee('Mulai ulang');
 
@@ -435,28 +504,48 @@ class BatchPageTest extends TestCase
 
     public function test_batal_sebelum_review(): void
     {
+        Queue::fake();
         $user = User::factory()->create();
         $id = $this->agent->startBatch($user->id, ['max_results' => 10]);
         $batch = app(BatchSyncService::class)->sync($user->id, $this->agent->getBatch($user->id, $id));
 
         Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id])->call('cancel');
+        $this->runOperation($batch);
         $this->assertSame(BatchStatus::Cancelled, $batch->fresh()->status);
     }
 
     // ------------------------------------------------------------- agen tidak tersedia
 
-    public function test_agen_tidak_tersedia_menampilkan_pesan_ramah(): void
+    public function test_batch_yang_hilang_dari_cache_fake_menjadi_gagal(): void
     {
         $user = User::factory()->create();
         $id = $this->agent->startBatch($user->id, ['max_results' => 10]);
         $batch = app(BatchSyncService::class)->sync($user->id, $this->agent->getBatch($user->id, $id));
         cache()->flush();   // agen "lupa" batch ini
+        (new SyncBatchStatusJob($batch->id))->handle($this->agent, app(BatchSyncService::class));
 
         Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id])
             ->call('refreshStatus')
-            ->assertSet('errorMessage', BatchRun::ERROR_UNAVAILABLE)
-            ->assertSee('Coba lagi')
+            ->assertSee('Batch ini tidak lagi tersedia di agen.')
+            ->assertSee('Mulai ulang')
             ->assertDontSee('tidak dikenal agen tiruan');
+    }
+
+    public function test_edit_draf_membatalkan_approval_dan_konfirmasi_tab_lama(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $batch = $this->reviewBatch($user);
+        $first = Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id])
+            ->call('setDecision', 'i_04', 'approve')
+            ->call('setDecision', 'i_02', 'approve');
+        $second = Livewire::actingAs($user)->test(BatchRun::class, ['batchId' => $batch->id]);
+        $second->set('drafts.i_04', 'Draf diganti di tab kedua.');
+        $this->assertSame(PlanDecision::Pending, $this->item($batch, 'i_04')->decision);
+
+        $first->call('execute')->assertSee('Keputusan atau draf berubah.');
+        Queue::assertNothingPushed();
+        $this->assertNull($batch->fresh()->pending_operation);
     }
 
     // ------------------------------------------------------------- mode demo & navigasi

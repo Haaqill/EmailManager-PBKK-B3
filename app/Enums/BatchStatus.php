@@ -16,6 +16,8 @@ enum BatchStatus: string
     /** Hanya dipakai Laravel (lihat batches:prune-review-data); agen tidak pernah mengirimnya. */
     case Expired = 'expired';
 
+    public const POLLABLE = [self::Queued, self::Scanning, self::Classifying, self::Drafting, self::Executing];
+
     public function label(): string
     {
         return match ($this) {

@@ -11,6 +11,7 @@ use App\Services\Agent\BatchSyncService;
 use App\Services\Agent\FakeAgentClient;
 use App\Services\Agent\PlanVersionMismatch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use LogicException;
 use Tests\TestCase;
 
@@ -41,6 +42,53 @@ class FakeAgentClientTest extends TestCase
         $this->travel(10)->seconds();
 
         return $id;
+    }
+
+    public function test_login_gmail_tiruan_terisolasi_per_pengguna(): void
+    {
+        $this->freezeSecond();
+        Http::preventStrayRequests();
+        $agent = app(AgentClient::class);
+
+        $this->assertSame(['status' => 'not_connected'], $agent->getGmailStatus(1));
+        $this->assertSame(['auth_url' => 'https://gmail-auth.invalid/authorize'], $agent->startGmailLogin(1));
+        $this->assertSame(['status' => 'not_connected'], $agent->getGmailStatus(1));
+
+        $this->travel(2)->seconds();
+
+        $agent = app(AgentClient::class);
+        $this->assertSame(['status' => 'connected'], $agent->getGmailStatus(1));
+        $this->assertSame(['status' => 'not_connected'], $agent->getGmailStatus(2));
+    }
+
+    public function test_login_gmail_tiruan_yang_baru_menggantikan_percobaan_sebelumnya(): void
+    {
+        $this->freezeSecond();
+        $this->agent->startGmailLogin(1);
+        $this->travel(1)->seconds();
+        $this->agent->startGmailLogin(1);
+        $this->travel(1)->seconds();
+
+        $this->assertSame(['status' => 'not_connected'], $this->agent->getGmailStatus(1));
+
+        $this->travel(1)->seconds();
+
+        $this->assertSame(['status' => 'connected'], $this->agent->getGmailStatus(1));
+    }
+
+    public function test_koneksi_gmail_tiruan_kedaluwarsa_dan_bisa_diperbarui(): void
+    {
+        $this->freezeSecond();
+        $this->agent->startGmailLogin(1);
+        $this->travel(2)->seconds();
+        $this->travel(24)->hours();
+
+        $this->assertSame(['status' => 'expired'], $this->agent->getGmailStatus(1));
+
+        $this->agent->startGmailLogin(1);
+        $this->travel(2)->seconds();
+
+        $this->assertSame(['status' => 'connected'], $this->agent->getGmailStatus(1));
     }
 
     public function test_status_maju_sesuai_waktu_sampai_awaiting_review(): void
@@ -150,11 +198,35 @@ class FakeAgentClientTest extends TestCase
         try {
             $this->agent->execute(1, $id, 1, []);
             $this->fail('execute sebelum review harus ditolak');
-        } catch (AgentUnavailable) {
+        } catch (PlanVersionMismatch $error) {
+            $this->assertSame('invalid_state', $error->agentCode);
         }
 
         $this->expectException(AgentUnavailable::class);
         $this->agent->getBatch(2, $id);
+    }
+
+    public function test_fake_mengembalikan_kode_kontrak_untuk_cache_hilang_dan_cancel_setelah_execute(): void
+    {
+        $id = $this->reviewBatch(1);
+        $this->agent->execute(1, $id, 1, []);
+        foreach ([0, 2] as $seconds) {
+            $this->travel($seconds)->seconds();
+            try {
+                $this->agent->cancel(1, $id);
+                $this->fail('Pembatalan setelah eksekusi harus ditolak.');
+            } catch (AgentUnavailable $error) {
+                $this->assertSame('invalid_state', $error->safeCode());
+            }
+        }
+
+        cache()->flush();
+        try {
+            $this->agent->getBatch(1, $id);
+            $this->fail('Batch hilang harus menghasilkan galat.');
+        } catch (AgentUnavailable $error) {
+            $this->assertSame('batch_not_found', $error->safeCode());
+        }
     }
 
     public function test_cancel_mengubah_status(): void
@@ -167,13 +239,13 @@ class FakeAgentClientTest extends TestCase
         $this->assertNull($payload['report']);
     }
 
-    public function test_driver_http_melempar_pengecualian_berpesan_jelas(): void
+    public function test_driver_fake_bisa_diresolve_dan_driver_tidak_dikenal_ditolak(): void
     {
         $this->assertInstanceOf(FakeAgentClient::class, app(AgentClient::class));
 
-        config(['agent.driver' => 'http']);
+        config(['agent.driver' => 'unknown']);
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Driver agen "http" belum diimplementasikan');
+        $this->expectExceptionMessage('Pilihan: fake, http.');
         app(AgentClient::class);
     }
 

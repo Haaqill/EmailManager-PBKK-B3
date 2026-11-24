@@ -23,9 +23,12 @@ class PruneBatchReviewData extends Command
             return self::INVALID;
         }
 
+        $cutoff = now()->subDays($days);
         $batchIds = Batch::query()
             ->where('status', BatchStatus::AwaitingReview)
-            ->where('updated_at', '<', now()->subDays($days))
+            ->whereNull('pending_operation')
+            ->where(fn ($query) => $query->whereNull('agent_error')->orWhere('agent_error->code', '!=', 'operation_outcome_unknown'))
+            ->where('updated_at', '<', $cutoff)
             ->pluck('id');
 
         if ($batchIds->isEmpty()) {
@@ -34,22 +37,31 @@ class PruneBatchReviewData extends Command
             return self::SUCCESS;
         }
 
-        DB::transaction(function () use ($batchIds) {
-            BatchPlanItem::query()
-                ->whereIn('batch_id', $batchIds)
-                ->update(array_fill_keys(BatchPlanItem::TRANSIENT_COLUMNS, null));
+        $pruned = 0;
+        foreach ($batchIds as $batchId) {
+            $expired = Batch::operationLock($batchId)->get(fn () => DB::transaction(function () use ($batchId, $cutoff): bool {
+                $updated = Batch::query()->whereKey($batchId)
+                    ->where('status', BatchStatus::AwaitingReview)
+                    ->whereNull('pending_operation')
+                    ->where(fn ($query) => $query->whereNull('agent_error')->orWhere('agent_error->code', '!=', 'operation_outcome_unknown'))
+                    ->where('updated_at', '<', $cutoff)
+                    ->update(['status' => BatchStatus::Expired, 'finished_at' => now(), 'agent_error' => null]);
+                if ($updated === 0) {
+                    return false;
+                }
 
-            Batch::query()->whereIn('id', $batchIds)->update([
-                'status' => BatchStatus::Expired,
-                'finished_at' => now(),
-                'updated_at' => now(),
-            ]);
-        });
+                BatchPlanItem::query()->where('batch_id', $batchId)
+                    ->update(array_fill_keys(BatchPlanItem::TRANSIENT_COLUMNS, null));
+
+                return true;
+            }));
+            $pruned += (int) $expired;
+        }
 
         // TODO: setelah AgentClient ada, batalkan juga batch ini di agen
         // (agen masih memegang state dan pii_map batch sampai dibatalkan).
 
-        $this->info("{$batchIds->count()} batch ditandai expired dan data review sementaranya dikosongkan.");
+        $this->info("{$pruned} batch ditandai expired dan data review sementaranya dikosongkan.");
 
         return self::SUCCESS;
     }

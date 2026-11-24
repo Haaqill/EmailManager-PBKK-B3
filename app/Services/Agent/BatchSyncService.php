@@ -6,6 +6,7 @@ use App\Enums\BatchStatus;
 use App\Enums\PlanDecision;
 use App\Models\Batch;
 use App\Models\BatchPlanItem;
+use Closure;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -19,6 +20,40 @@ use Illuminate\Support\Facades\DB;
  */
 class BatchSyncService
 {
+    public function pull(AgentClient $agent, Batch $batch, ?Closure $canWrite = null): ?Batch
+    {
+        $payload = $agent->getBatch($batch->user_id, $batch->agent_batch_id);
+        if ($canWrite !== null && ! $canWrite()) {
+            return null;
+        }
+        if (($payload['batch_id'] ?? null) !== $batch->agent_batch_id) {
+            throw InvalidAgentPayload::field('batch_id');
+        }
+
+        return $this->sync($batch->user_id, $payload);
+    }
+
+    public function persistAgentError(Batch $batch, AgentUnavailable|InvalidAgentPayload $exception): void
+    {
+        $code = $exception instanceof AgentUnavailable ? $exception->safeCode() : 'invalid_agent_payload';
+        if ($code === 'batch_not_found') {
+            DB::transaction(function () use ($batch, $code): void {
+                $failed = $this->sync($batch->user_id, [
+                    'batch_id' => $batch->agent_batch_id,
+                    'status' => BatchStatus::Failed->value,
+                ]);
+                $failed->update(['pending_operation' => null, 'agent_error' => Batch::agentError($code)]);
+            });
+
+            return;
+        }
+
+        if ($batch->isReconciling()) {
+            return;
+        }
+        $batch->update(['agent_error' => Batch::agentError($code)]);
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      *
@@ -37,6 +72,13 @@ class BatchSyncService
         }
 
         [$planVersion, $items] = $this->parsePlan($payload['plan'] ?? null);
+        if ($status === BatchStatus::AwaitingReview && $planVersion === null) {
+            throw InvalidAgentPayload::field('plan');
+        }
+        if ($status === BatchStatus::Done && (! is_array($payload['report']['summary'] ?? null)
+            || ! is_array($payload['report']['results'] ?? null))) {
+            throw InvalidAgentPayload::field('report');
+        }
         $results = $status->isFinished() ? $this->parseResults($payload['report'] ?? null) : [];
 
         return DB::transaction(function () use ($userId, $agentBatchId, $status, $planVersion, $items, $results, $payload) {
@@ -45,10 +87,14 @@ class BatchSyncService
             if ($batch !== null && $batch->user_id !== $userId) {
                 throw InvalidAgentPayload::field('batch_id', 'milik pengguna lain');
             }
-            // Batch yang sudah kedaluwarsa di Laravel tidak dihidupkan lagi oleh sync,
-            // supaya data review yang sudah dibersihkan tidak terisi ulang.
-            if ($batch !== null && $batch->status === BatchStatus::Expired && ! $status->isFinished()) {
+            if ($batch !== null && $batch->status->isFinished()) {
                 return $batch;
+            }
+            if ($batch?->status === BatchStatus::Executing && $status !== BatchStatus::Executing && ! $status->isFinished()) {
+                return $batch;
+            }
+            if ($batch !== null && $planVersion !== null && $planVersion < $batch->plan_version) {
+                throw InvalidAgentPayload::field('plan.plan_version');
             }
 
             $batch ??= new Batch(['user_id' => $userId, 'agent_batch_id' => $agentBatchId]);
@@ -67,7 +113,7 @@ class BatchSyncService
             }
             $batch->save();
 
-            if ($status->inReview()) {
+            if ($status->inReview() && ! $batch->isReconciling()) {
                 $this->syncReviewItems($batch, $items, $versionChanged);
             } elseif ($status->isFinished()) {
                 $this->finishItems($batch, $items, $results);
@@ -108,6 +154,12 @@ class BatchSyncService
      */
     private function finishItems(Batch $batch, array $items, array $results): void
     {
+        if ($batch->status === BatchStatus::Done) {
+            $expected = $items === [] ? $batch->items()->pluck('item_id')->all() : array_map(fn (PlanItemData $item) => $item->itemId, $items);
+            if (array_diff($expected, array_keys($results)) !== []) {
+                throw InvalidAgentPayload::field('report.results', 'belum lengkap');
+            }
+        }
         foreach ($items as $data) {
             $this->upsertItem($batch, $data, withReviewData: false);
         }

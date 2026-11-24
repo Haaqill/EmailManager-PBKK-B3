@@ -1,11 +1,11 @@
 <?php
 
 return [
-    /*
-    | Driver AgentClient: "fake" (data contoh, mode demo). "http" (agen Python lewat
-    | FastAPI) belum diimplementasikan; memilihnya melempar pengecualian.
-    */
+    // Driver "fake" untuk demo offline dan "http" untuk FastAPI.
     'driver' => env('AGENT_DRIVER', 'fake'),
+    'url' => env('AGENT_URL', ''),
+    'token' => env('AGENT_TOKEN', ''),
+    'timeout' => (int) env('AGENT_TIMEOUT', 10),
 
     // Batas jumlah thread per batch (sama dengan MAX_BATCH di agen Python).
     'max_threads' => 10,

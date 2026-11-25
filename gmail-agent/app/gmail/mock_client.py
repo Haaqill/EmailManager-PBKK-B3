@@ -134,6 +134,7 @@ class MockGmailAPIClient:
             thread_id=row.id,
             subject=row.subject,
             from_domain=_domain(first_message.from_),
+            reply_to="",
             messages=[
                 GmailMessage.model_validate(
                     {

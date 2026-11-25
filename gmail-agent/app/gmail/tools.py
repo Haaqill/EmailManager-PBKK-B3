@@ -150,6 +150,7 @@ def fetch_thread(
     Redaksi:
     - subject   → redact()
     - from_     → redact() (header From termasuk nama & email)
+    - reply_to  → redact() (header penerima balasan)
     - body_text → redact()
     - attachments (name, mime_type, size) → TIDAK diredaksi di MVP
       (nama file lampiran diredaksi SETELAH MVP)
@@ -179,6 +180,7 @@ def fetch_thread(
         update={
             "subject": _redact(mentah.subject, ctx),
             "from_domain": _redact_domain(mentah.from_domain),
+            "reply_to": _redact(mentah.reply_to, ctx),
             "messages": pesan_teredaksi,
         }
     )

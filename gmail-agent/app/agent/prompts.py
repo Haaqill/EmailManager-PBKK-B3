@@ -11,7 +11,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from app.contracts import CONFIDENCE_LEVELS, Category, Confidence, Priority
 from app.privacy.injection import wrap_email_content
@@ -50,6 +57,14 @@ class ClassificationOutput(BaseModel):
         if isinstance(v, str) and v.strip().lower() in CONFIDENCE_LEVELS:
             return v.strip().lower()
         return None
+
+    @model_validator(mode="after")
+    def _nanti_tidak_memerlukan_balasan(self) -> "ClassificationOutput":
+        if self.priority == "Nanti" and self.needs_reply:
+            raise ValueError(
+                "Prioritas Nanti tidak boleh disertai needs_reply"
+            )
+        return self
 
 
 class DraftOutput(BaseModel):

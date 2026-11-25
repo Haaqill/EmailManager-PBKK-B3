@@ -128,10 +128,12 @@ class GmailAPIClient:
             raise LookupError(f"Thread {thread_id!r} tidak ditemukan.")
 
         first_payload = messages[0].get("payload", {})
+        _, reply_to = self._reply_target(messages)
         return GmailThread(
             thread_id=thread_id,
             subject=_header(first_payload, "Subject"),
             from_domain=_email_domain(_header(first_payload, "From")),
+            reply_to=reply_to or "",
             messages=[
                 GmailMessage.model_validate(
                     {
@@ -227,31 +229,14 @@ class GmailAPIClient:
         if not messages:
             raise LookupError(f"Thread {thread_id!r} tidak ditemukan.")
 
-        profile = self._execute(
-            self._service.users().getProfile(userId="me")
-        )
-        own_email = profile.get("emailAddress", "").lower()
-        if not own_email:
-            raise ValueError("Gmail tidak mengembalikan alamat akun yang aktif.")
-
-        reply_target = next(
-            (
-                message
-                for message in reversed(messages)
-                if _email_address(_header(message.get("payload", {}), "From"))
-                != own_email
-            ),
-            None,
-        )
+        reply_target, to_value = self._reply_target(messages)
         if reply_target is None:
             raise ValueError(f"Thread {thread_id!r} tidak memiliki pesan masuk untuk dibalas.")
-
-        target_payload = reply_target.get("payload", {})
-        target_headers = _headers(target_payload)
-        to_value = target_headers.get("reply-to") or target_headers.get("from")
         if not to_value:
             raise ValueError(f"Pesan pada thread {thread_id!r} tidak memiliki pengirim.")
 
+        target_payload = reply_target.get("payload", {})
+        target_headers = _headers(target_payload)
         subject = (
             target_headers.get("subject")
             or _header(messages[0].get("payload", {}), "Subject")
@@ -285,6 +270,15 @@ class GmailAPIClient:
         if not draft_id:
             raise ValueError("Gmail tidak mengembalikan ID draft.")
         return GmailDraftResult(draft_id=draft_id)
+
+    def _reply_target(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        profile = self._execute(self._service.users().getProfile(userId="me"))
+        own_email = profile.get("emailAddress", "").lower()
+        if not own_email:
+            raise ValueError("Gmail tidak mengembalikan alamat akun yang aktif.")
+        return _select_reply_target(messages, own_email)
 
     def _execute(self, request: Any) -> dict[str, Any]:
         try:
@@ -340,6 +334,24 @@ def _email_address(value: str) -> str:
 
 def _email_domain(value: str) -> str:
     return _email_address(value).rpartition("@")[2]
+
+
+def _select_reply_target(
+    messages: list[dict[str, Any]], own_email: str
+) -> tuple[dict[str, Any] | None, str | None]:
+    reply_target = next(
+        (
+            message
+            for message in reversed(messages)
+            if _email_address(_header(message.get("payload", {}), "From"))
+            != own_email
+        ),
+        None,
+    )
+    if reply_target is None:
+        return None, None
+    headers = _headers(reply_target.get("payload", {}))
+    return reply_target, headers.get("reply-to") or headers.get("from")
 
 
 def _message_date(message: dict[str, Any]) -> str:

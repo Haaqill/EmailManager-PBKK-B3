@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -34,11 +34,11 @@ from app.agent.prompts import (
 from app.agent.state import InboxState
 from app.contracts import (
     ActionRecord,
-    ErrorCode,
     LLMClient,
     LLMOutputError,
     PlanItem,
     ReviewDecision,
+    ToolResult,
     ToolContext,
 )
 from app.gmail.tools import register_all_tools
@@ -55,9 +55,19 @@ logger = logging.getLogger("gmail_agent.graph")
 class InboxGraph:
     """Workflow satu batch. Satu batch = satu thread_id checkpointer (batch_id)."""
 
-    def __init__(self, llm: LLMClient, gmail_client: Any, *, checkpointer: Any = None) -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        gmail_client: Any,
+        *,
+        checkpointer: Any = None,
+        on_stage: Callable[[str], None] | None = None,
+        on_item_result: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> None:
         self.llm = llm
         self.gmail_client = gmail_client
+        self.on_stage = on_stage
+        self.on_item_result = on_item_result
         register_all_tools()
 
         g = StateGraph(InboxState)
@@ -117,6 +127,8 @@ class InboxGraph:
 
     # ------------------------------------------------------------ node
     def _fetch(self, state: InboxState) -> dict:
+        if self.on_stage:
+            self.on_stage("scanning")
         ctx = self._ctx(state["batch_id"], READ_TOOLS)
         errors = list(state.get("errors", []))
         scan = dispatch("scan_emails", {"max_results": state["batch_size"]}, ctx)
@@ -134,6 +146,8 @@ class InboxGraph:
         return {"threads": threads, "errors": errors}
 
     def _classify(self, state: InboxState) -> dict:
+        if self.on_stage:
+            self.on_stage("classifying")
         errors = list(state.get("errors", []))
         results = []
         confidence_missing = 0   # hanya jumlah; isi email tidak dicatat
@@ -147,6 +161,8 @@ class InboxGraph:
                 "confidence_missing": confidence_missing}
 
     def _draft(self, state: InboxState) -> dict:
+        if self.on_stage:
+            self.on_stage("drafting")
         errors = list(state.get("errors", []))
         by_id = {t["thread_id"]: t for t in state.get("threads", [])}
         drafts = {}
@@ -198,25 +214,59 @@ class InboxGraph:
         plan = {p["thread_id"]: p for p in state.get("plan", [])}
         history = list(state.get("action_history", []))
 
-        def run(tid: str, tool: str, args: dict) -> None:
+        def run(tid: str, tool: str, args: dict) -> ToolResult[Any]:
             res = dispatch(tool, {"thread_id": tid, **args}, ctx)
             history.append(ActionRecord(thread_id=tid, tool=tool, ok=res.ok,
                                         error_code=res.error_code).model_dump())
+            return res
 
         for d in state.get("decisions", []):
             if d["status"] == "rejected":
                 continue
             item = d["edited"] if d["status"] == "edited" else plan[d["thread_id"]]
             tid = d["thread_id"]
-            run(tid, "label_thread", {"category": item["category"], "priority": item["priority"],
-                                      "reason": item["reason"]})
-            if item["action"] == "archive":
-                run(tid, "archive_thread", {})
-            elif item["action"] == "trash":   # setelah MVP: butuh konfirmasi per item
-                history.append(ActionRecord(thread_id=tid, tool="trash_thread", ok=False,
-                                            error_code=ErrorCode.NOT_ALLOWED).model_dump())
-            if item.get("draft_body"):
-                run(tid, "create_draft_reply", {"body": item["draft_body"]})
+            hasil = {
+                "status": "skipped",
+                "labels": [],
+                "archived": False,
+                "draft_id": None,
+                "actions_ok": 0,
+                "actions_failed": 0,
+            }
+            if item["action"] != "trash":
+                hasil["status"] = "ok"
+
+                def catat(
+                    tool_result: ToolResult[Any], field: str, target: str
+                ) -> None:
+                    if tool_result.ok:
+                        hasil["actions_ok"] += 1
+                        if tool_result.data is not None:
+                            hasil[target] = getattr(tool_result.data, field)
+                    else:
+                        hasil["actions_failed"] += 1
+                        hasil["status"] = "failed"
+
+                label_result = run(
+                    tid,
+                    "label_thread",
+                    {
+                        "category": item["category"],
+                        "priority": item["priority"],
+                        "reason": item["reason"],
+                    },
+                )
+                catat(label_result, "applied", "labels")
+                if item["action"] == "archive":
+                    archive_result = run(tid, "archive_thread", {})
+                    catat(archive_result, "archived", "archived")
+                if item.get("draft_body"):
+                    draft_result = run(
+                        tid, "create_draft_reply", {"body": item["draft_body"]}
+                    )
+                    catat(draft_result, "draft_id", "draft_id")
+            if self.on_item_result:
+                self.on_item_result(tid, hasil)
         return {"action_history": history}
 
     def _report(self, state: InboxState) -> dict:

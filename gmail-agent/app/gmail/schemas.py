@@ -78,6 +78,7 @@ class GmailThread(BaseModel):
     thread_id: str
     subject: str            # sudah diredaksi
     from_domain: str
+    reply_to: str = ""      # data mentah; tool fetch_thread meredaksi sebelum masuk state
     messages: list[GmailMessage]
     attachments: list[GmailAttachment]
 

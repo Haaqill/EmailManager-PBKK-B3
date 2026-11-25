@@ -63,7 +63,8 @@ class BatchRegistry:
                     plan_version INTEGER NOT NULL,
                     max_results INTEGER NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    execution_started INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS batch_items (
                     batch_id TEXT NOT NULL,
@@ -75,10 +76,31 @@ class BatchRegistry:
                     draft_id TEXT,
                     actions_ok INTEGER NOT NULL,
                     actions_failed INTEGER NOT NULL,
+                    action TEXT NOT NULL DEFAULT '',
                     PRIMARY KEY (batch_id, item_id)
                 );
                 """
             )
+            item_columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(batch_items)"
+                ).fetchall()
+            }
+            if "action" not in item_columns:
+                self._connection.execute(
+                    "ALTER TABLE batch_items ADD COLUMN action TEXT NOT NULL DEFAULT ''"
+                )
+            batch_columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(batches)"
+                ).fetchall()
+            }
+            if "execution_started" not in batch_columns:
+                self._connection.execute(
+                    "ALTER TABLE batches ADD COLUMN execution_started INTEGER NOT NULL DEFAULT 0"
+                )
             self._connection.commit()
 
     def close(self) -> None:
@@ -135,15 +157,22 @@ class BatchRegistry:
             cursor = self._connection.execute(
                 f"""
                 UPDATE batches
-                SET status = ?, updated_at = ?
+                SET status = ?, updated_at = ?,
+                    execution_started = CASE WHEN ? = 'executing'
+                                              THEN 1 ELSE execution_started END
                 WHERE batch_id = ? AND status IN ({placeholders})
                 """,
-                (to_status, _now(), batch_id, *eligible),
+                (to_status, _now(), to_status, batch_id, *eligible),
             )
-        return cursor.rowcount == 1
+            changed = cursor.rowcount == 1
+        return changed
 
     def set_plan(
-        self, batch_id: str, item_ids: Sequence[str], plan_version: int
+        self,
+        batch_id: str,
+        item_ids: Sequence[str],
+        plan_version: int,
+        item_actions: Mapping[str, str] | None = None,
     ) -> None:
         if type(plan_version) is not int or plan_version < 1:
             raise ValueError("Versi plan tidak valid.")
@@ -151,6 +180,12 @@ class BatchRegistry:
             raise ValueError("ID item tidak valid.")
         if len(set(item_ids)) != len(item_ids):
             raise ValueError("ID item tidak valid.")
+        actions = item_actions or {}
+        if set(actions) - set(item_ids) or any(
+            action not in {"draft_reply", "archive", "label_only", "trash"}
+            for action in actions.values()
+        ):
+            raise ValueError("Aksi item tidak valid.")
         now = _now()
         with self._lock, self._connection:
             cursor = self._connection.execute(
@@ -170,11 +205,30 @@ class BatchRegistry:
                 """
                 INSERT INTO batch_items
                     (batch_id, item_id, decision, status, labels, archived,
-                     draft_id, actions_ok, actions_failed)
-                VALUES (?, ?, 'none', NULL, '[]', 0, NULL, 0, 0)
+                     draft_id, actions_ok, actions_failed, action)
+                VALUES (?, ?, 'none', NULL, '[]', 0, NULL, 0, 0, ?)
                 """,
-                ((batch_id, item_id) for item_id in item_ids),
+                (
+                    (batch_id, item_id, actions.get(item_id, ""))
+                    for item_id in item_ids
+                ),
             )
+
+    def get_item_actions(self, batch_id: str) -> dict[str, str]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT item_id, action FROM batch_items WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchall()
+        return {row["item_id"]: row["action"] for row in rows}
+
+    def was_executing(self, batch_id: str) -> bool:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT execution_started FROM batches WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchone()
+        return row is not None and bool(row["execution_started"])
 
     def save_decisions(self, batch_id: str, decisions: Mapping[str, str]) -> None:
         if any(decision not in {"approve", "reject"} for decision in decisions.values()):
@@ -314,6 +368,12 @@ class BatchRegistry:
     def reconcile_on_start(self) -> int:
         placeholders = ", ".join("?" for _ in _IN_PROGRESS_STATUSES)
         with self._lock, self._connection:
+            self._connection.execute(
+                """
+                UPDATE batches SET execution_started = 1
+                WHERE status = 'executing'
+                """
+            )
             cursor = self._connection.execute(
                 f"""
                 UPDATE batches

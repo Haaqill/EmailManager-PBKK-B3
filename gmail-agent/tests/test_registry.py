@@ -151,7 +151,12 @@ def test_skema_persistensi_hanya_memiliki_kolom_yang_diizinkan(tmp_path):
     database = tmp_path / "registry.sqlite"
     registry = BatchRegistry(database)
     batch_id = registry.create_batch("user-1", 1)
-    registry.set_plan(batch_id, ["i_1"], 1)
+    registry.set_plan(
+        batch_id,
+        ["i_1"],
+        1,
+        item_actions={"i_1": "draft_reply"},
+    )
     registry.record_item_result(
         batch_id,
         "i_1",
@@ -180,6 +185,7 @@ def test_skema_persistensi_hanya_memiliki_kolom_yang_diizinkan(tmp_path):
             "max_results",
             "created_at",
             "updated_at",
+            "execution_started",
         ]
         assert item_columns == [
             "batch_id",
@@ -191,9 +197,61 @@ def test_skema_persistensi_hanya_memiliki_kolom_yang_diizinkan(tmp_path):
             "draft_id",
             "actions_ok",
             "actions_failed",
+            "action",
         ]
+        assert connection.execute(
+            "SELECT action FROM batch_items WHERE item_id = 'i_1'"
+        ).fetchone()[0] == "draft_reply"
     finally:
         connection.close()
+
+
+def test_migrasi_registri_lama_menambah_metadata_aman(tmp_path):
+    database = tmp_path / "registry-lama.sqlite"
+    connection = sqlite3.connect(database)
+    connection.executescript(
+        """
+        CREATE TABLE batches (
+            batch_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            plan_version INTEGER NOT NULL,
+            max_results INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE batch_items (
+            batch_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            status TEXT,
+            labels TEXT NOT NULL,
+            archived INTEGER NOT NULL,
+            draft_id TEXT,
+            actions_ok INTEGER NOT NULL,
+            actions_failed INTEGER NOT NULL,
+            PRIMARY KEY (batch_id, item_id)
+        );
+        """
+    )
+    connection.close()
+
+    registry = BatchRegistry(database)
+    batch_id = registry.create_batch("42", 1)
+    registry.set_plan(
+        batch_id,
+        ["i_01"],
+        1,
+        item_actions={"i_01": "draft_reply"},
+    )
+    assert registry.get_item_actions(batch_id) == {"i_01": "draft_reply"}
+    assert registry.transition(batch_id, ["queued"], "executing")
+    assert registry.transition(batch_id, ["executing"], "failed")
+    registry.close()
+
+    reopened = BatchRegistry(database)
+    assert reopened.was_executing(batch_id)
+    reopened.close()
 
 
 def test_report_menolak_batch_yang_tidak_dikenal(tmp_path):

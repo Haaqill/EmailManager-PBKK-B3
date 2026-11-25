@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import secrets
 from contextlib import asynccontextmanager
-from concurrent.futures import Executor, ThreadPoolExecutor
+from concurrent.futures import Executor
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -17,6 +17,8 @@ from app.server.errors import (
     unexpected_error_handler,
     validation_error_handler,
 )
+from app.server.manager import BatchManager
+from app.server.routes import create_router
 from app.server.settings import Settings
 
 _USER_ID_RE = re.compile(r"^[0-9]{1,18}$")
@@ -48,7 +50,7 @@ def create_app(
     executor: Executor | None = None,
 ) -> FastAPI:
     """Buat aplikasi dengan seluruh dependensi eksternal diinjeksi."""
-    app_executor = executor if executor is not None else ThreadPoolExecutor()
+    manager = BatchManager(registry, llm_factory, gmail_factory, executor)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -57,7 +59,7 @@ def create_app(
             registry.reconcile_on_start()
             yield
         finally:
-            app_executor.shutdown(wait=True)
+            manager.shutdown()
 
     app = FastAPI(
         docs_url=None,
@@ -74,5 +76,7 @@ def create_app(
     app.state.registry = registry
     app.state.llm_factory = llm_factory
     app.state.gmail_factory = gmail_factory
-    app.state.executor = app_executor
+    app.state.manager = manager
+    app.state.executor = manager.executor
+    app.include_router(create_router(manager))
     return app

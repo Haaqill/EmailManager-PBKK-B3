@@ -101,7 +101,7 @@ ulang. Saat logika itu dibuat, hasilnya diisi ke `warnings[]` di builder tanpa m
 
 ## 5. Format sync (`GET /v1/batches/{id}`)
 
-Endpoint ini dikunci di tahap 2 (bagian 6), tetapi belum diimplementasikan.
+Endpoint ini dikunci di tahap 2 (bagian 6) dan diimplementasikan oleh server agen.
 `BatchSyncService::sync()` mengharapkan JSON berikut;
 contoh lengkap ada di `tests/Fixtures/agent/`.
 

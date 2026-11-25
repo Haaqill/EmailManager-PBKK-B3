@@ -17,6 +17,8 @@ logs/
 *.sqlite
 *.sqlite3
 *.db
+*.sqlite-wal
+*.sqlite-shm
 chroma/
 
 # Python

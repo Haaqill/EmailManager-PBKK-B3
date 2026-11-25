@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 from app.config import _DOTENV_ONLY_KEYS
+from app.gmail.auth import DEFAULT_USER_ID
 from app.gmail.client import GmailAPIClient
 from app.gmail.mock_client import MockGmailAPIClient
 
@@ -45,11 +46,13 @@ def gmail_backend(secrets=None) -> str:
     return backend
 
 
-def make_gmail_client(backend: str | None = None):
+def make_gmail_client(
+    backend: str | None = None, user_id: str = DEFAULT_USER_ID
+):
     """Buat Gmail client sesuai env; Gmail asli menuntut login yang sudah ada."""
     selected = backend or gmail_backend()
     if selected == "mock":
         return MockGmailAPIClient()
     if selected == "gmail":
-        return GmailAPIClient(interactive=False)
+        return GmailAPIClient(interactive=False, user_id=user_id)
     raise GmailConfigError("GMAIL_BACKEND harus bernilai 'mock' atau 'gmail'.")

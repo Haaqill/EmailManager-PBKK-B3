@@ -11,13 +11,14 @@ import pytest
 from googleapiclient.errors import HttpError
 from tenacity import wait_none
 
-import app.gmail.client as gmail_client
 from app.contracts import FatalToolError, ToolContext
+from app.gmail.auth import DEFAULT_USER_ID
 from app.gmail.client import GmailAPIClient
 from app.gmail.mock_client import MockGmailAPIClient
 from app.gmail.schemas import FetchThreadArgs, ScanEmailsArgs
 from app.gmail.tools import fetch_thread, scan_emails
 from app.privacy.redact import pii_map_for, release_pii_map
+import app.gmail.client as gmail_client
 
 
 def _http_error(status: int) -> HttpError:
@@ -40,6 +41,7 @@ def _message(
     mime_type: str = "text/plain",
     message_id: str = "<msg@example.test>",
     references: str = "",
+    reply_to: str | None = None,
 ) -> dict:
     headers = [
         {"name": "From", "value": sender},
@@ -49,6 +51,8 @@ def _message(
     ]
     if references:
         headers.append({"name": "References", "value": references})
+    if reply_to:
+        headers.append({"name": "Reply-To", "value": reply_to})
     payload: dict = {
         "mimeType": mime_type,
         "headers": headers,
@@ -212,7 +216,9 @@ def test_mock_client_loads_json_array_and_implements_protocol(tmp_path):
     assert [summary.thread_id for summary in summaries] == ["t001"]
     assert summaries[0].from_domain == "univ.ac.id"
     assert summaries[0].has_attachments is True
-    assert client.get_thread(thread_id="t001", max_messages=1).attachments[0].name == "rubrik.pdf"
+    thread = client.get_thread(thread_id="t001", max_messages=1)
+    assert thread.attachments[0].name == "rubrik.pdf"
+    assert thread.reply_to == ""
 
 
 def test_mock_client_filters_and_caps_results(tmp_path):
@@ -421,6 +427,53 @@ def test_api_client_extracts_plain_html_and_attachment_metadata():
     assert thread.attachments[0].size_bytes == 123
 
 
+@pytest.mark.parametrize(
+    ("reply_to", "expected"),
+    [
+        ("Koordinator <koord@example.test>", "Koordinator <koord@example.test>"),
+        (None, "Dosen <dosen@univ.ac.id>"),
+    ],
+)
+def test_api_client_get_thread_mengisi_reply_to_dengan_penerima_draft(
+    reply_to, expected
+):
+    message = _message(
+        "Dosen <dosen@univ.ac.id>",
+        date=datetime.now(timezone.utc),
+        reply_to=reply_to,
+    )
+    client = GmailAPIClient(service=_FakeService(_api_thread([message])))
+
+    thread = client.get_thread(thread_id="thread-1", max_messages=5)
+
+    assert thread.reply_to == expected
+
+
+def test_tool_fetch_thread_meredaksi_reply_to():
+    message = _message(
+        "Dosen <dosen@univ.ac.id>",
+        date=datetime.now(timezone.utc),
+        reply_to="Balasan Pribadi <private.reply@example.test>",
+    )
+    client = GmailAPIClient(service=_FakeService(_api_thread([message])))
+    pii_map = pii_map_for("gmail-reply-to-redaction")
+    context = ToolContext(
+        batch_id="gmail-reply-to-redaction",
+        pii_map=pii_map,
+        allowed_tools={"fetch_thread"},
+        gmail_client=client,
+    )
+
+    try:
+        result = fetch_thread(FetchThreadArgs(thread_id="thread-1"), context)
+
+        assert result.ok
+        assert "private.reply@example.test" not in result.data.thread.reply_to
+        assert "<EMAIL_" in result.data.thread.reply_to
+    finally:
+        release_pii_map("gmail-reply-to-redaction")
+
+
 def test_api_client_replaces_labels_archives_and_creates_reply_draft():
     now = datetime.now(timezone.utc)
     incoming = _message(
@@ -483,10 +536,15 @@ def test_api_client_maps_404_to_lookup_error():
 
 def test_api_client_loads_credentials_and_builds_gmail_service(monkeypatch):
     calls = []
+    credential_calls = []
     credentials = object()
     service = _FakeService(_api_thread())
 
-    monkeypatch.setattr(gmail_client, "get_credentials", lambda **kwargs: credentials)
+    monkeypatch.setattr(
+        gmail_client,
+        "get_credentials",
+        lambda **kwargs: credential_calls.append(kwargs) or credentials,
+    )
     monkeypatch.setattr(
         gmail_client,
         "build",
@@ -502,6 +560,23 @@ def test_api_client_loads_credentials_and_builds_gmail_service(monkeypatch):
             {"credentials": credentials, "cache_discovery": False},
         )
     ]
+    assert credential_calls == [{"interactive": True, "user_id": DEFAULT_USER_ID}]
+
+
+def test_api_client_meneruskan_id_pengguna_ke_kredensial(monkeypatch):
+    credential_calls = []
+    monkeypatch.setattr(
+        gmail_client,
+        "get_credentials",
+        lambda **kwargs: credential_calls.append(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        gmail_client, "build", lambda *args, **kwargs: _FakeService(_api_thread())
+    )
+
+    GmailAPIClient(user_id="alice")
+
+    assert credential_calls == [{"interactive": True, "user_id": "alice"}]
 
 
 def test_api_client_turns_reauth_requirement_into_fatal_error(monkeypatch):

@@ -10,6 +10,7 @@ from app.agent import dispatcher as d
 from app.agent.graph import InboxGraph
 from app.contracts import LLMUnavailableError, PlanItem, ReviewDecision
 from app.llm.mock import MockLLM, make_text_response, make_tool_response
+from app.privacy.redact import release_pii_map
 from tests.test_gmail_tools import MockGmail
 
 # (id, kategori, prioritas, aksi, perlu_balas)
@@ -181,3 +182,202 @@ def test_llm_mati_diteruskan(gmail):
     graph = InboxGraph(MockLLM([LLMUnavailableError("server mati")]), gmail)
     with pytest.raises(LLMUnavailableError):
         graph.start("b9")
+
+
+def test_callback_tahap_dipanggil_berurutan(gmail):
+    stages = []
+    graph = InboxGraph(full_batch_llm(), gmail, on_stage=stages.append)
+
+    try:
+        graph.start("b-stage")
+    finally:
+        release_pii_map("b-stage")
+
+    assert stages == ["scanning", "classifying", "drafting"]
+
+
+def test_exception_callback_tahap_menghentikan_graph(gmail):
+    stages = []
+    failure = RuntimeError("callback berhenti")
+
+    def on_stage(stage):
+        stages.append(stage)
+        if stage == "classifying":
+            raise failure
+
+    graph = InboxGraph(full_batch_llm(), gmail, on_stage=on_stage)
+
+    try:
+        with pytest.raises(RuntimeError) as error:
+            graph.start("b-stage-error")
+    finally:
+        release_pii_map("b-stage-error")
+
+    assert error.value is failure
+    assert stages == ["scanning", "classifying"]
+
+
+def test_callback_hasil_item_untuk_approve_dan_edit(gmail):
+    item_results = []
+    graph = InboxGraph(
+        MockLLM(
+            [classification(*thread) for thread in THREADS[:3]]
+            + [draft("t01", "Terima kasih."), draft("t02", "Baik.")]
+        ),
+        gmail,
+        on_item_result=lambda thread_id, result: item_results.append(
+            (thread_id, result)
+        ),
+    )
+    plan = graph.start("b-item-results", batch_size=3)
+    edited = next(item for item in plan if item.thread_id == "t02").model_copy(
+        update={"category": "Pribadi", "action": "archive"}
+    )
+
+    graph.resume(
+        "b-item-results",
+        [
+            ReviewDecision(thread_id="t01", status="approved"),
+            ReviewDecision(thread_id="t02", status="edited", edited=edited),
+            ReviewDecision(thread_id="t03", status="rejected"),
+        ],
+    )
+
+    assert [thread_id for thread_id, _ in item_results] == ["t01", "t02"]
+    assert item_results[0][1] == {
+        "status": "ok",
+        "labels": ["Kategori/Tugas", "Prioritas/Mendesak"],
+        "archived": False,
+        "draft_id": "draft-1",
+        "actions_ok": 2,
+        "actions_failed": 0,
+    }
+    assert item_results[1][1] == {
+        "status": "ok",
+        "labels": ["Kategori/Pribadi", "Prioritas/Normal"],
+        "archived": True,
+        "draft_id": "draft-2",
+        "actions_ok": 3,
+        "actions_failed": 0,
+    }
+
+
+def test_callback_hasil_gagal_draft_tetap_menyimpan_label(gmail, monkeypatch):
+    item_results = []
+    monkeypatch.setattr(
+        gmail,
+        "create_draft",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("detail internal")),
+    )
+    graph = InboxGraph(
+        MockLLM(
+            [
+                classification("t01", "Tugas", "Mendesak", "keep", True),
+                draft("t01", "Terima kasih."),
+            ]
+        ),
+        gmail,
+        on_item_result=lambda thread_id, result: item_results.append(
+            (thread_id, result)
+        ),
+    )
+    graph.start("b-item-failed", batch_size=1)
+
+    graph.resume("b-item-failed", [ReviewDecision(thread_id="t01", status="approved")])
+
+    assert item_results == [
+        (
+            "t01",
+            {
+                "status": "failed",
+                "labels": ["Kategori/Tugas", "Prioritas/Mendesak"],
+                "archived": False,
+                "draft_id": None,
+                "actions_ok": 1,
+                "actions_failed": 1,
+            },
+        )
+    ]
+
+
+def test_sampah_dilewati_tanpa_menjalankan_aksi(gmail):
+    item_results = []
+    graph = InboxGraph(
+        MockLLM(
+            [
+                classification(*THREADS[0]),
+                draft("t01", "Terima kasih."),
+            ]
+        ),
+        gmail,
+        on_item_result=lambda thread_id, result: item_results.append(
+            (thread_id, result)
+        ),
+    )
+    plan = graph.start("b-trash", batch_size=1)
+    trash = plan[0].model_copy(update={"action": "trash"})
+
+    report = graph.resume(
+        "b-trash",
+        [ReviewDecision(thread_id="t01", status="edited", edited=trash)],
+    )
+
+    assert item_results == [
+        (
+            "t01",
+            {
+                "status": "skipped",
+                "labels": [],
+                "archived": False,
+                "draft_id": None,
+                "actions_ok": 0,
+                "actions_failed": 0,
+            },
+        )
+    ]
+    assert gmail.labels_applied == [] and gmail.archived == [] and gmail.drafts == []
+    assert report["actions_failed"] == 0
+    assert graph.graph.get_state(graph._config("b-trash")).values["action_history"] == []
+
+
+def test_prioritas_nanti_dengan_balasan_memicu_koreksi_llm(gmail):
+    invalid = classification("t01", "Tugas", "Nanti", "keep", True)
+    llm = MockLLM(
+        [
+            invalid,
+            classification("t01", "Tugas", "Normal", "keep", True),
+            draft("t01", "Terima kasih."),
+        ]
+    )
+
+    try:
+        plan = InboxGraph(llm, gmail).start("b-priority-correction", batch_size=1)
+    finally:
+        release_pii_map("b-priority-correction")
+
+    assert plan[0].priority == "Normal"
+    assert plan[0].needs_reply is True
+    assert "Prioritas Nanti tidak boleh disertai needs_reply" in (
+        llm.calls[1]["messages"][-1]["content"]
+    )
+
+
+def test_reply_to_tidak_masuk_ke_state_graph(gmail):
+    class GmailDenganReplyTo(type(gmail)):
+        def get_thread(self, *, thread_id, max_messages):
+            thread = super().get_thread(thread_id=thread_id, max_messages=max_messages)
+            return thread.model_copy(update={"reply_to": "balas-rahasia@example.test"})
+
+    client = GmailDenganReplyTo()
+    client.threads = gmail.threads
+    llm = MockLLM([classification("t01", "Tugas", "Normal", "keep", False)])
+    graph = InboxGraph(llm, client)
+
+    try:
+        graph.start("b-reply-to-state", batch_size=1)
+        values = json.dumps(
+            graph.graph.get_state(graph._config("b-reply-to-state")).values
+        )
+        assert "balas-rahasia@example.test" not in values
+    finally:
+        release_pii_map("b-reply-to-state")

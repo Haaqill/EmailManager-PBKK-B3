@@ -41,12 +41,12 @@ return [
     /**
      * The description of your application.
      */
-    'description' => env('NATIVEPHP_APP_DESCRIPTION', 'An awesome app built with NativePHP'),
+    'description' => env('NATIVEPHP_APP_DESCRIPTION', 'Pengelola inbox Gmail dengan agen AI dan persetujuan pengguna'),
 
     /**
      * The Website of your application.
      */
-    'website' => env('NATIVEPHP_APP_WEBSITE', 'https://nativephp.com'),
+    'website' => env('NATIVEPHP_APP_WEBSITE'),
 
     /**
      * The repository information used by electron-builder when publishing.
@@ -75,6 +75,14 @@ return [
         'GITHUB_*',
         'DO_SPACES_*',
         '*_SECRET',
+        '*_PASSWORD',
+        // Kunci LLM dan token agen tidak boleh ikut terbundel di installer.
+        'LLM_*_KEY',
+        'AGENT_TOKEN',
+        // Dihapus agar build memakai bawaan config/app.php (production, debug mati),
+        // bukan nilai dev dari .env (local, debug hidup).
+        'APP_ENV',
+        'APP_DEBUG',
         'BIFROST_*',
         'NATIVEPHP_UPDATER_PATH',
         'NATIVEPHP_APPLE_ID',
@@ -97,6 +105,14 @@ return [
         'content',
         'node_modules',
         '*/tests',
+        // Agen Python berisi credentials.json, gmail-agent/.env (kunci LLM), dan .venv.
+        // Belum dibundel; cara menjalankan agen dari aplikasi desktop belum diputuskan.
+        'gmail-agent',
+        'body.json',
+        'docs',
+        'contracts',
+        'tests',
+        '.claude',
     ],
 
     /**
@@ -108,7 +124,7 @@ return [
          * updater will only work when your application is bundled
          * for production.
          */
-        'enabled' => env('NATIVEPHP_UPDATER_ENABLED', true),
+        'enabled' => env('NATIVEPHP_UPDATER_ENABLED', false),
 
         /**
          * Whether an available update is downloaded automatically. Set this

@@ -112,7 +112,6 @@ return [
         'docs',
         'contracts',
         'tests',
-        '.claude',
     ],
 
     /**

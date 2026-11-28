@@ -56,7 +56,7 @@ menyalin `.env` setelah membuang kunci di `cleanup_env_keys`. Tambahan dari bawa
 
 - `cleanup_exclude_files`:
   - `gmail-agent` (berisi `credentials.json`, `gmail-agent/.env` dengan kunci LLM, dan `.venv`);
-  - `body.json`, `docs`, `contracts`, `tests`, `.claude`.
+  - `body.json`, `docs`, `contracts`, `tests`.
 - `cleanup_env_keys`:
   - `*_PASSWORD`, `LLM_*_KEY`, `AGENT_TOKEN`;
   - `APP_ENV` dan `APP_DEBUG`, supaya build memakai bawaan `config/app.php` (production, debug

@@ -35,3 +35,6 @@ __pycache__/
 credentials.json
 client_secret*.json
 token*.json
+
+# Hasil build NativePHP (installer dan aplikasi terekstrak)
+/nativephp/electron/dist
